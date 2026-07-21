@@ -1,0 +1,6 @@
+{
+  "name": "English Vocab Estimator",
+  "description": "A vocabulary estimation app that calculates your English word knowledge based on selected words.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

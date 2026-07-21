@@ -1,0 +1,102 @@
+import { createClient } from '@supabase/supabase-js';
+import { Word, VocabResult } from './types';
+
+const supabaseUrl    = import.meta.env.VITE_SUPABASE_URL    as string;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// ── 単語取得 ──────────────────────────────────────────────────────────────────
+export async function fetchWords(): Promise<{ wordList: Word[]; dummyWords: Word[] }> {
+  const { data, error } = await supabase
+    .from('words')
+    .select('id, word, level, b_param, is_dummy');
+
+  if (error) throw error;
+
+  const wordList: Word[]   = [];
+  const dummyWords: Word[] = [];
+
+  for (const row of data) {
+    const word: Word = {
+      id:      row.id,
+      word:    row.word,
+      level:   row.level,
+      b_param: row.b_param,
+      isDummy: row.is_dummy,
+    };
+    if (row.is_dummy) dummyWords.push(word);
+    else              wordList.push(word);
+  }
+
+  return { wordList, dummyWords };
+}
+
+// ── 回答ログ記録 ──────────────────────────────────────────────────────────────
+export async function logResponses(
+  words: Word[],
+  selectedIds: Set<string>,
+  userTheta: number
+): Promise<void> {
+  const logs = words.map(w => ({
+    word_id:    w.id,
+    selected:   selectedIds.has(w.id),
+    user_theta: userTheta,
+  }));
+  const { error } = await supabase.from('response_logs').insert(logs);
+  if (error) console.error('回答ログの書き込みに失敗しました:', error);
+}
+
+// ── ランキング：スコア送信 ────────────────────────────────────────────────────
+export async function submitScore(result: VocabResult): Promise<void> {
+  const { error } = await supabase.from('scores').insert({
+    estimate: result.estimate,
+    lower:    result.lower,
+    upper:    result.upper,
+  });
+  if (error) console.error('スコア送信に失敗しました:', error);
+}
+
+// ── ランキング：統計取得 ──────────────────────────────────────────────────────
+export interface RankingStats {
+  total:      number;
+  percentile: number;  // 0〜100 (下位何%か)
+  median:     number;
+}
+
+export async function fetchRankingStats(estimate: number): Promise<RankingStats> {
+  const { data, error } = await supabase
+    .rpc('get_ranking_stats', { p_estimate: estimate });
+  if (error) throw error;
+  return data as RankingStats;
+}
+
+// ── 管理：単語統計取得（word_stats ビュー） ───────────────────────────────────
+export interface WordStat {
+  id:                string;
+  word:              string;
+  level:             number;
+  b_param:           number;
+  response_count:    number;
+  mean_theta:        number;
+  correct_rate:      number;
+  proposed_b:        number;
+  calibration_ready: boolean;
+}
+
+export async function fetchWordStats(): Promise<WordStat[]> {
+  const { data, error } = await supabase
+    .from('word_stats')
+    .select('*')
+    .order('level')
+    .order('word');
+  if (error) throw error;
+  return data as WordStat[];
+}
+
+// ── 管理：キャリブレーション実行 ─────────────────────────────────────────────
+export async function runCalibration(): Promise<number> {
+  const { data, error } = await supabase.rpc('run_calibration');
+  if (error) throw error;
+  return data as number;
+}
