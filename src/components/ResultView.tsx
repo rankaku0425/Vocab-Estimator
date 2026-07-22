@@ -26,25 +26,130 @@ const CATEGORIES = [
   { label: '専門語',   levels: [9, 10],       desc: 'Advanced' },
 ] as const;
 
+// ── カテゴリ詳細モーダル ──────────────────────────────────────────────────────
+type CategoryDef = typeof CATEGORIES[number];
+
+function CategoryModal({
+  cat,
+  allShownWords,
+  selectedIds,
+  onClose,
+}: {
+  cat: CategoryDef;
+  allShownWords: Word[];
+  selectedIds: Set<string>;
+  onClose: () => void;
+}) {
+  const catWords  = allShownWords.filter(w => !w.isDummy && (cat.levels as readonly number[]).includes(w.level));
+  const known     = catWords.filter(w => selectedIds.has(w.id));
+  const unknown   = catWords.filter(w => !selectedIds.has(w.id));
+  const hasData   = catWords.length > 0;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white border border-stone-200 w-full max-w-md max-h-[80vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-stone-100">
+          <div>
+            <p className="text-xs text-stone-400 uppercase tracking-wider">{cat.desc}</p>
+            <h3 className="font-bold text-stone-900">{cat.label} — Lv {cat.levels.join(', ')}</h3>
+          </div>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-xl leading-none">×</button>
+        </div>
+
+        <div className="px-6 py-5">
+          {!hasData ? (
+            <p className="text-sm text-stone-400 italic">
+              このカテゴリの単語は今回のテストで出題されませんでした。
+            </p>
+          ) : (
+            <div className="space-y-5">
+              {/* 知っていた */}
+              <div>
+                <p className="text-xs font-medium text-stone-500 uppercase tracking-wider mb-2">
+                  知っていた単語 ({known.length}/{catWords.length})
+                </p>
+                {known.length === 0 ? (
+                  <p className="text-sm text-stone-400 italic">なし</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {known.map(w => (
+                      <span key={w.id} className="bg-stone-900 text-white text-sm px-2.5 py-1 font-medium">
+                        {w.word}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* 知らなかった */}
+              <div>
+                <p className="text-xs font-medium text-stone-500 uppercase tracking-wider mb-2">
+                  知らなかった単語 ({unknown.length}/{catWords.length})
+                </p>
+                {unknown.length === 0 ? (
+                  <p className="text-sm text-stone-400 italic">なし</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {unknown.map(w => (
+                      <span key={w.id} className="border border-stone-300 text-stone-600 text-sm px-2.5 py-1">
+                        {w.word}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── カテゴリ別診断 ────────────────────────────────────────────────────────────
-function CategoryBreakdown({ breakdown }: { breakdown: { level: number; probability: number }[] }) {
+function CategoryBreakdown({
+  breakdown,
+  allShownWords,
+  selectedIds,
+}: {
+  breakdown: { level: number; probability: number }[];
+  allShownWords: Word[];
+  selectedIds: Set<string>;
+}) {
+  const [activeCat, setActiveCat] = useState<CategoryDef | null>(null);
+
   return (
     <div className="mb-10 border border-stone-200 bg-white p-6">
-      <h4 className="font-bold text-stone-900 mb-4 text-sm uppercase tracking-wider">
+      <h4 className="font-bold text-stone-900 mb-1 text-sm uppercase tracking-wider">
         カテゴリ別 語彙診断
       </h4>
+      <p className="text-xs text-stone-400 mb-4">カードをクリックすると出題単語の詳細を確認できます</p>
       <div className="grid grid-cols-2 gap-3">
         {CATEGORIES.map(cat => {
-          const probs = cat.levels.map(lv => breakdown.find(b => b.level === lv)?.probability ?? 0);
+          const probs = (cat.levels as readonly number[]).map(lv => breakdown.find(b => b.level === lv)?.probability ?? 0);
           const avg = probs.reduce((s, p) => s + p, 0) / probs.length;
           const pct = Math.round(avg * 100);
+          const shownCount = allShownWords.filter(w => !w.isDummy && (cat.levels as readonly number[]).includes(w.level)).length;
           return (
-            <div key={cat.label} className="border border-stone-100 p-4">
+            <button
+              key={cat.label}
+              onClick={() => setActiveCat(cat)}
+              className="border border-stone-100 p-4 text-left hover:border-stone-400 hover:bg-stone-50 transition-colors cursor-pointer"
+            >
               <div className="flex items-baseline justify-between mb-2">
                 <span className="text-xs text-stone-400 uppercase tracking-wider">{cat.desc}</span>
                 <span className="text-lg font-serif font-bold text-stone-900">{pct}%</span>
               </div>
-              <p className="text-sm font-medium text-stone-700 mb-2">{cat.label}</p>
+              <p className="text-sm font-medium text-stone-700 mb-1">{cat.label}</p>
+              {shownCount > 0 && (
+                <p className="text-xs text-stone-400 mb-2">{shownCount} 語出題</p>
+              )}
               <div className="w-full h-1.5 bg-stone-100 rounded-full overflow-hidden">
                 <motion.div
                   initial={{ width: 0 }}
@@ -55,10 +160,19 @@ function CategoryBreakdown({ breakdown }: { breakdown: { level: number; probabil
                   }`}
                 />
               </div>
-            </div>
+            </button>
           );
         })}
       </div>
+
+      {activeCat && (
+        <CategoryModal
+          cat={activeCat}
+          allShownWords={allShownWords}
+          selectedIds={selectedIds}
+          onClose={() => setActiveCat(null)}
+        />
+      )}
     </div>
   );
 }
@@ -338,7 +452,7 @@ function createResultCanvas(result: VocabResult): HTMLCanvasElement {
   ctx.font = '22px Georgia, serif';
   ctx.fillStyle = '#78716c';
   ctx.fillText(' 語', PAD + numW, y + 50);
-  y += 72;
+  y += 96; // 数字（60px font）とCIテキストの間に十分な余白
 
   // CI テキスト
   ctx.font = '12px Arial, sans-serif';
@@ -582,7 +696,7 @@ export function ResultView({ result, allShownWords, selectedIds, onRetry, isHist
         <WeaknessHighlight breakdown={levelBreakdown} />
 
         {/* ── カテゴリ別診断（機能11） ── */}
-        <CategoryBreakdown breakdown={levelBreakdown} />
+        <CategoryBreakdown breakdown={levelBreakdown} allShownWords={allShownWords} selectedIds={selectedIds} />
 
         {/* ── レベル別棒グラフ ── */}
         <div className="mb-10 border border-stone-200 bg-white p-6">

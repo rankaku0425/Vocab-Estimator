@@ -1,0 +1,146 @@
+// ============================================================
+// ローカルストレージ テストデータ（カテゴリ別詳細表示対応版）
+// ブラウザの DevTools Console で貼り付けて実行してください。
+// ============================================================
+
+localStorage.setItem('vocab_test_history_v1', JSON.stringify([
+  {
+    "estimate": 3200,
+    "date": "2026-06-01T10:23:00.000Z",
+    "result": {
+      "estimate": 3200,
+      "lower": 2600,
+      "upper": 3900,
+      "theta": -1.5,
+      "levelBreakdown": [
+        { "level": 1,  "probability": 0.97 },
+        { "level": 2,  "probability": 0.91 },
+        { "level": 3,  "probability": 0.78 },
+        { "level": 4,  "probability": 0.58 },
+        { "level": 5,  "probability": 0.38 },
+        { "level": 6,  "probability": 0.22 },
+        { "level": 7,  "probability": 0.12 },
+        { "level": 8,  "probability": 0.06 },
+        { "level": 9,  "probability": 0.03 },
+        { "level": 10, "probability": 0.01 }
+      ]
+    },
+    "allShownWords": [
+      { "id": "w1_1",  "word": "apple",     "level": 1 },
+      { "id": "w1_2",  "word": "water",     "level": 1 },
+      { "id": "w1_3",  "word": "book",      "level": 1 },
+      { "id": "w2_1",  "word": "accident",  "level": 2 },
+      { "id": "w2_2",  "word": "behavior",  "level": 2 },
+      { "id": "w2_3",  "word": "celebrate", "level": 2 },
+      { "id": "w3_1",  "word": "abundant",  "level": 3 },
+      { "id": "w3_2",  "word": "barrier",   "level": 3 },
+      { "id": "w3_3",  "word": "calculate", "level": 3 },
+      { "id": "w4_1",  "word": "accumulate","level": 4 },
+      { "id": "w4_2",  "word": "benevolent","level": 4 },
+      { "id": "w4_3",  "word": "compile",   "level": 4 },
+      { "id": "w5_1",  "word": "anomaly",   "level": 5 },
+      { "id": "w5_2",  "word": "boisterous","level": 5 },
+      { "id": "w6_1",  "word": "amalgamate","level": 6 },
+      { "id": "w7_1",  "word": "antediluvian","level": 7 },
+      { "id": "w8_1",  "word": "panacea",   "level": 8 },
+      { "id": "w9_1",  "word": "equanimity","level": 9 },
+      { "id": "w10_1", "word": "trenchant", "level": 10 },
+      { "id": "d1",    "word": "bromp",     "level": 0, "isDummy": true },
+      { "id": "d2",    "word": "snarp",     "level": 0, "isDummy": true }
+    ],
+    "selectedIds": ["w1_1","w1_2","w1_3","w2_1","w2_2","w2_3","w3_1","w3_2","w4_1","w5_1"]
+  },
+  {
+    "estimate": 5800,
+    "date": "2026-06-15T14:05:00.000Z",
+    "result": {
+      "estimate": 5800,
+      "lower": 5100,
+      "upper": 6600,
+      "theta": 0.3,
+      "levelBreakdown": [
+        { "level": 1,  "probability": 0.99 },
+        { "level": 2,  "probability": 0.97 },
+        { "level": 3,  "probability": 0.92 },
+        { "level": 4,  "probability": 0.82 },
+        { "level": 5,  "probability": 0.65 },
+        { "level": 6,  "probability": 0.45 },
+        { "level": 7,  "probability": 0.27 },
+        { "level": 8,  "probability": 0.14 },
+        { "level": 9,  "probability": 0.07 },
+        { "level": 10, "probability": 0.03 }
+      ]
+    },
+    "allShownWords": [
+      { "id": "w1_4",  "word": "time",      "level": 1 },
+      { "id": "w1_5",  "word": "person",    "level": 1 },
+      { "id": "w2_4",  "word": "describe",  "level": 2 },
+      { "id": "w2_5",  "word": "education", "level": 2 },
+      { "id": "w3_4",  "word": "decrease",  "level": 3 },
+      { "id": "w3_5",  "word": "elaborate", "level": 3 },
+      { "id": "w4_4",  "word": "derive",    "level": 4 },
+      { "id": "w4_5",  "word": "eradicate", "level": 4 },
+      { "id": "w5_3",  "word": "conundrum", "level": 5 },
+      { "id": "w5_4",  "word": "diverge",   "level": 5 },
+      { "id": "w5_5",  "word": "ephemeral", "level": 5 },
+      { "id": "w6_2",  "word": "cacophony", "level": 6 },
+      { "id": "w6_3",  "word": "delineate", "level": 6 },
+      { "id": "w7_2",  "word": "bellicose", "level": 7 },
+      { "id": "w7_3",  "word": "chicanery", "level": 7 },
+      { "id": "w8_2",  "word": "querulous", "level": 8 },
+      { "id": "w9_2",  "word": "fatuous",   "level": 9 },
+      { "id": "w10_2", "word": "unctuous",  "level": 10 },
+      { "id": "d3",    "word": "flig",      "level": 0, "isDummy": true },
+      { "id": "d4",    "word": "quentis",   "level": 0, "isDummy": true }
+    ],
+    "selectedIds": ["w1_4","w1_5","w2_4","w2_5","w3_4","w3_5","w4_4","w4_5","w5_3","w5_4","w5_5","w6_2","w7_2"]
+  },
+  {
+    "estimate": 7400,
+    "date": "2026-07-01T09:30:00.000Z",
+    "result": {
+      "estimate": 7400,
+      "lower": 6700,
+      "upper": 8200,
+      "theta": 1.2,
+      "levelBreakdown": [
+        { "level": 1,  "probability": 0.99 },
+        { "level": 2,  "probability": 0.98 },
+        { "level": 3,  "probability": 0.96 },
+        { "level": 4,  "probability": 0.91 },
+        { "level": 5,  "probability": 0.81 },
+        { "level": 6,  "probability": 0.65 },
+        { "level": 7,  "probability": 0.46 },
+        { "level": 8,  "probability": 0.28 },
+        { "level": 9,  "probability": 0.15 },
+        { "level": 10, "probability": 0.07 }
+      ]
+    },
+    "allShownWords": [
+      { "id": "w1_6",  "word": "year",       "level": 1 },
+      { "id": "w2_6",  "word": "familiar",   "level": 2 },
+      { "id": "w2_7",  "word": "generate",   "level": 2 },
+      { "id": "w3_6",  "word": "fascinate",  "level": 3 },
+      { "id": "w3_7",  "word": "gather",     "level": 3 },
+      { "id": "w4_6",  "word": "fluctuate",  "level": 4 },
+      { "id": "w4_7",  "word": "gravity",    "level": 4 },
+      { "id": "w5_6",  "word": "formidable", "level": 5 },
+      { "id": "w5_7",  "word": "gregarious", "level": 5 },
+      { "id": "w6_4",  "word": "enervate",   "level": 6 },
+      { "id": "w6_5",  "word": "fastidious", "level": 6 },
+      { "id": "w7_4",  "word": "defenestrate","level": 7 },
+      { "id": "w7_5",  "word": "ebullient",  "level": 7 },
+      { "id": "w8_3",  "word": "recalcitrant","level": 8 },
+      { "id": "w8_4",  "word": "sycophant",  "level": 8 },
+      { "id": "w9_3",  "word": "germane",    "level": 9 },
+      { "id": "w9_4",  "word": "harangue",   "level": 9 },
+      { "id": "w10_3", "word": "vicarious",  "level": 10 },
+      { "id": "d5",    "word": "blont",      "level": 0, "isDummy": true },
+      { "id": "d6",    "word": "vroptic",    "level": 0, "isDummy": true }
+    ],
+    "selectedIds": ["w1_6","w2_6","w2_7","w3_6","w3_7","w4_6","w4_7","w5_6","w5_7","w6_4","w6_5","w7_4","w7_5","w8_3","w9_3"]
+  }
+]));
+
+console.log("✓ テストデータをセットしました。ページをリロードして WelcomeView の「過去の結果」を確認してください。");
+console.log("  → 各結果の「カテゴリ別 語彙診断」カードをクリックすると出題単語の詳細が表示されます。");

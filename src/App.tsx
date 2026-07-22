@@ -55,7 +55,9 @@ export default function App() {
   const [selectedIds, setSelectedIds]     = useState<Set<string>>(new Set());
   const [currentStepWords, setCurrentStepWords] = useState<Word[]>([]);
   const [currentResult, setCurrentResult] = useState<VocabResult | null>(null);
-  const [historyResult, setHistoryResult] = useState<VocabResult | null>(null);
+  const [historyResult, setHistoryResult]           = useState<VocabResult | null>(null);
+  const [historyShownWords, setHistoryShownWords]   = useState<Word[]>([]);
+  const [historySelectedIds, setHistorySelectedIds] = useState<Set<string>>(new Set());
   const [wordList, setWordList]           = useState<Word[]>([]);
   const [dummyWords, setDummyWords]       = useState<Word[]>([]);
   const [loadError, setLoadError]         = useState<string | null>(null);
@@ -94,8 +96,11 @@ export default function App() {
     setView('stepResult');
   };
 
-  const handleViewHistory = (result: VocabResult) => {
-    setHistoryResult(result);
+  const handleViewHistory = (entry: TestHistoryEntry) => {
+    if (!entry.result) return;
+    setHistoryResult(entry.result);
+    setHistoryShownWords(entry.allShownWords ?? []);
+    setHistorySelectedIds(new Set(entry.selectedIds ?? []));
     setView('historyResult');
   };
 
@@ -126,11 +131,12 @@ export default function App() {
       clearSession();
       if (currentResult) {
         submitScore(currentResult);
-        // 履歴を localStorage に保存（最大10件、full result 付き）
         const entry: TestHistoryEntry = {
           estimate: currentResult.estimate,
           date: new Date().toISOString(),
           result: currentResult,
+          allShownWords,
+          selectedIds: [...selectedIds],
         };
         try {
           const prev = loadHistory();
@@ -208,8 +214,8 @@ export default function App() {
       {view === 'historyResult' && historyResult && (
         <ResultView
           result={historyResult}
-          allShownWords={[]}
-          selectedIds={new Set()}
+          allShownWords={historyShownWords}
+          selectedIds={historySelectedIds}
           onRetry={handleRetry}
           isHistory
         />

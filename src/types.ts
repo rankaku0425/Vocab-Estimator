@@ -19,5 +19,7 @@ export interface VocabResult {
 export interface TestHistoryEntry {
   estimate: number;
   date: string; // ISO string
-  result?: VocabResult; // 詳細再表示用
+  result?: VocabResult;
+  allShownWords?: Word[];
+  selectedIds?: string[];
 }

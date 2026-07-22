@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { VocabResult, TestHistoryEntry } from '../types';
+import { TestHistoryEntry } from '../types';
 import { loadHistory } from '../App';
 
 interface Props {
   onStart: () => void;
   hasSavedSession: boolean;
   onResume: () => void;
-  onViewHistory: (result: VocabResult) => void;
+  onViewHistory: (entry: TestHistoryEntry) => void;
 }
 
 export function WelcomeView({ onStart, hasSavedSession, onResume, onViewHistory }: Props) {
@@ -70,7 +70,7 @@ export function WelcomeView({ onStart, hasSavedSession, onResume, onViewHistory 
                 return (
                   <button
                     key={i}
-                    onClick={() => entry.result && onViewHistory(entry.result)}
+                    onClick={() => entry.result && onViewHistory(entry)}
                     className="w-full flex items-center justify-between border border-stone-200 bg-white hover:bg-stone-50 px-5 py-3 transition-colors text-left"
                   >
                     <span className="text-xs text-stone-400 font-mono">{label}</span>
