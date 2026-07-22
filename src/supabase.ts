@@ -132,6 +132,33 @@ export async function submitSelfEvaluation(
   if (error) console.error('自己評価送信失敗:', error);
 }
 
+// ── 実スコア相関統計（アイデア23） ────────────────────────────────────────────
+export interface ToeicCorrelation {
+  band:      string;
+  toeic_min: number;
+  count:     number;
+  avg_vocab: number;
+}
+
+export interface EikenCorrelation {
+  level:       string;
+  eiken_order: number;
+  count:       number;
+  avg_vocab:   number;
+}
+
+export async function fetchToeicCorrelation(): Promise<ToeicCorrelation[]> {
+  const { data, error } = await supabase.rpc('get_toeic_correlation');
+  if (error) throw error;
+  return (data as ToeicCorrelation[]) ?? [];
+}
+
+export async function fetchEikenCorrelation(): Promise<EikenCorrelation[]> {
+  const { data, error } = await supabase.rpc('get_eiken_correlation');
+  if (error) throw error;
+  return (data as EikenCorrelation[]) ?? [];
+}
+
 // ── 管理：年代・性別別統計 ────────────────────────────────────────────────────
 export interface DemographicStat {
   age_group:       string;

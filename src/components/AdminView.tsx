@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import {
   fetchWordStats, runCalibration, updateWordBParam, addWord, deleteWord, WordStat,
   fetchDemographicStats, DemographicStat,
+  fetchToeicCorrelation, ToeicCorrelation,
+  fetchEikenCorrelation, EikenCorrelation,
 } from '../supabase';
 
 type LevelFilter = 'all' | number;
@@ -314,8 +316,112 @@ function DemographicView() {
   );
 }
 
+// ── 実スコア相関ビュー ────────────────────────────────────────────────────────
+function RealScoreView() {
+  const [toeicData, setToeicData] = useState<ToeicCorrelation[]>([]);
+  const [eikenData, setEikenData] = useState<EikenCorrelation[]>([]);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState<string | null>(null);
+
+  useEffect(() => {
+    Promise.all([fetchToeicCorrelation(), fetchEikenCorrelation()])
+      .then(([toeic, eiken]) => { setToeicData(toeic); setEikenData(eiken); })
+      .catch(() => setError('実スコア相関データの取得に失敗しました。get_toeic_correlation / get_eiken_correlation RPC が存在するか確認してください。'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <p className="text-stone-400 text-sm py-12 text-center">読み込み中...</p>;
+  if (error)   return <div className="p-4 border border-red-200 bg-red-50 text-red-700 text-sm">{error}</div>;
+
+  const totalToeic = toeicData.reduce((s, r) => s + Number(r.count), 0);
+  const totalEiken = eikenData.reduce((s, r) => s + Number(r.count), 0);
+
+  const maxVocab = Math.max(
+    ...toeicData.map(r => Number(r.avg_vocab)),
+    ...eikenData.map(r => Number(r.avg_vocab)),
+    1,
+  );
+  const BAR_MAX = 160;
+
+  return (
+    <div className="space-y-8">
+      {/* 概要カード */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <StatCard label="TOEIC 入力数" value={totalToeic} sub="スコア記入あり" />
+        <StatCard label="英検 入力数"  value={totalEiken} sub="級記入あり" />
+        <StatCard label="合計件数" value={totalToeic + totalEiken} sub="延べ（重複あり）" />
+      </div>
+
+      {totalToeic === 0 && totalEiken === 0 ? (
+        <div className="border border-stone-200 bg-white p-8 text-center">
+          <p className="text-stone-500 text-sm">実スコアのデータがまだありません。</p>
+          <p className="text-stone-400 text-xs mt-1">テスト完了後に実際のスコアを入力したユーザーのデータが蓄積されると表示されます。</p>
+        </div>
+      ) : (
+        <>
+          {/* TOEIC 相関グラフ */}
+          {toeicData.length > 0 && (
+            <div className="border border-stone-200 bg-white p-6">
+              <h3 className="font-bold text-stone-900 text-sm uppercase tracking-wider mb-1">
+                TOEIC スコア × 推定語彙数
+              </h3>
+              <p className="text-xs text-stone-400 mb-5">各TOEICスコア帯ユーザーの平均推定語彙数</p>
+              <div className="space-y-3">
+                {toeicData.map(r => {
+                  const avg   = Math.round(Number(r.avg_vocab));
+                  const barPx = Math.round((avg / maxVocab) * BAR_MAX);
+                  return (
+                    <div key={r.band} className="flex items-center gap-3">
+                      <span className="text-xs text-stone-500 w-20 shrink-0 font-mono">{r.band}</span>
+                      <div className="flex-1 flex items-center gap-2">
+                        <div className="h-5 bg-stone-900 rounded-sm" style={{ width: barPx }} />
+                        <span className="text-xs font-mono text-stone-700">{avg.toLocaleString()} 語</span>
+                      </div>
+                      <span className="text-xs text-stone-400 w-12 text-right">{Number(r.count)} 人</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* 英検 相関グラフ */}
+          {eikenData.length > 0 && (
+            <div className="border border-stone-200 bg-white p-6">
+              <h3 className="font-bold text-stone-900 text-sm uppercase tracking-wider mb-1">
+                英検 × 推定語彙数
+              </h3>
+              <p className="text-xs text-stone-400 mb-5">各英検レベルユーザーの平均推定語彙数</p>
+              <div className="space-y-3">
+                {eikenData.map(r => {
+                  const avg   = Math.round(Number(r.avg_vocab));
+                  const barPx = Math.round((avg / maxVocab) * BAR_MAX);
+                  return (
+                    <div key={r.level} className="flex items-center gap-3">
+                      <span className="text-xs text-stone-500 w-20 shrink-0">{r.level}</span>
+                      <div className="flex-1 flex items-center gap-2">
+                        <div className="h-5 bg-stone-700 rounded-sm" style={{ width: barPx }} />
+                        <span className="text-xs font-mono text-stone-700">{avg.toLocaleString()} 語</span>
+                      </div>
+                      <span className="text-xs text-stone-400 w-12 text-right">{Number(r.count)} 人</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <p className="text-xs text-stone-400">
+            ※ データ件数が少ない段階では平均値がぶれやすいです。50件以上集まると信頼性が上がります。
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── メインコンポーネント ──────────────────────────────────────────────────────
-type AdminTab = 'words' | 'demographics';
+type AdminTab = 'words' | 'demographics' | 'realscores';
 
 export function AdminView() {
   const [activeTab, setActiveTab]   = useState<AdminTab>('words');
@@ -428,7 +534,11 @@ export function AdminView() {
 
         {/* タブ */}
         <div className="flex gap-0 mb-6 border-b border-stone-200">
-          {(['words', 'demographics'] as AdminTab[]).map(tab => (
+          {([
+            ['words',       '単語管理'],
+            ['demographics','年代・性別分析'],
+            ['realscores',  'スコア相関'],
+          ] as [AdminTab, string][]).map(([tab, label]) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -438,13 +548,16 @@ export function AdminView() {
                   : 'border-transparent text-stone-400 hover:text-stone-700'
               }`}
             >
-              {tab === 'words' ? '単語管理' : '年代・性別分析'}
+              {label}
             </button>
           ))}
         </div>
 
         {/* 年代・性別分析タブ */}
         {activeTab === 'demographics' && <DemographicView />}
+
+        {/* スコア相関タブ */}
+        {activeTab === 'realscores' && <RealScoreView />}
 
         {/* 単語管理タブ */}
         {activeTab === 'words' && <>
