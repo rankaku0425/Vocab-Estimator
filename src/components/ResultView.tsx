@@ -678,13 +678,10 @@ function HistoryChart() {
   );
 }
 
-// ── ランキング分布グラフ ──────────────────────────────────────────────────────
-const RANK_BUCKETS   = 18;
-const RANK_MAX_VOCAB = 12000;
+// ── ランキング位置グラフ ──────────────────────────────────────────────────────
+const RANK_BUCKETS = 20; // 各棒 = 5パーセンタイル幅
 
 function RankingDistributionChart({
-  estimate,
-  median,
   percentile,
   label,
 }: {
@@ -693,23 +690,10 @@ function RankingDistributionChart({
   percentile: number;
   label:      string;
 }) {
-  const bucketSize = RANK_MAX_VOCAB / RANK_BUCKETS;
-  const sd         = 2200; // 正規分布の近似標準偏差
-  const pdf        = (x: number) => Math.exp(-0.5 * ((x - median) / sd) ** 2);
-
-  const buckets = Array.from({ length: RANK_BUCKETS }, (_, i) => {
-    const start = i * bucketSize;
-    return {
-      start,
-      height: pdf(start + bucketSize / 2),
-      isUser: estimate >= start && estimate < start + bucketSize,
-    };
-  });
-  if (estimate >= RANK_MAX_VOCAB) buckets[RANK_BUCKETS - 1].isUser = true;
-
-  const maxH        = Math.max(...buckets.map(b => b.height));
-  const MAX_BAR_PX  = 72;
-  const medianPct   = Math.min((median / RANK_MAX_VOCAB) * 100, 99);
+  // percentile は「下位何%か」(0〜100)。ユーザーが属するバケットを決定
+  const bucketPct    = 100 / RANK_BUCKETS; // 5%
+  const userBucket   = Math.min(Math.floor(percentile / bucketPct), RANK_BUCKETS - 1);
+  const BAR_HEIGHT   = 56;
 
   const topPct      = 100 - percentile;
   const topPctLabel = topPct < 1 ? '上位 1% 以内' : `上位 ${topPct.toFixed(1)}%`;
@@ -721,39 +705,36 @@ function RankingDistributionChart({
         <span className="text-xs text-stone-400">{label}</span>
       </div>
 
-      {/* 分布棒グラフ（正規分布近似） */}
-      <div className="relative" style={{ height: MAX_BAR_PX }}>
+      {/* 位置棒グラフ（各棒 = ランキング5%幅） */}
+      <div className="relative" style={{ height: BAR_HEIGHT }}>
         <div className="flex items-end gap-px h-full">
-          {buckets.map((b, i) => {
-            const barH = Math.max(2, Math.round((b.height / maxH) * MAX_BAR_PX));
-            return (
-              <motion.div
-                key={i}
-                initial={{ height: 0 }}
-                animate={{ height: barH }}
-                transition={{ duration: 0.6, delay: i * 0.03, ease: 'easeOut' }}
-                className={`flex-1 ${b.isUser ? 'bg-stone-900' : 'bg-stone-200'}`}
-              />
-            );
-          })}
+          {Array.from({ length: RANK_BUCKETS }, (_, i) => (
+            <motion.div
+              key={i}
+              initial={{ height: 0 }}
+              animate={{ height: BAR_HEIGHT }}
+              transition={{ duration: 0.4, delay: i * 0.02, ease: 'easeOut' }}
+              className={`flex-1 ${i === userBucket ? 'bg-stone-900' : 'bg-stone-200'}`}
+            />
+          ))}
         </div>
 
-        {/* 中央値の赤縦線 */}
+        {/* 中央値（50パーセンタイル）の赤縦線 */}
         <div
           className="absolute top-0 bottom-0 w-px bg-red-400 pointer-events-none"
-          style={{ left: `${medianPct}%` }}
+          style={{ left: '50%' }}
         />
       </div>
 
       {/* 軸ラベル */}
       <div className="relative mt-1">
-        <div className="flex justify-between text-[10px] text-stone-400 font-mono">
-          <span>0</span>
-          <span>12,000+</span>
+        <div className="flex justify-between text-[10px] text-stone-400">
+          <span>下位</span>
+          <span>上位</span>
         </div>
         <div
           className="absolute top-0 text-[10px] text-red-400 -translate-x-1/2 whitespace-nowrap"
-          style={{ left: `${medianPct}%` }}
+          style={{ left: '50%' }}
         >
           中央値
         </div>
