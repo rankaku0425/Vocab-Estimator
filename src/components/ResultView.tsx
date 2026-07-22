@@ -766,8 +766,8 @@ function createResultCanvas(result: VocabResult): HTMLCanvasElement {
   // CEFR バッジ
   const badges = [
     { label: 'CEFR', value: cefrRow.cefr },
-    { label: 'TOEIC', value: cefrRow.toeic },
-    { label: '英検', value: cefrRow.eiken },
+    { label: 'TOEIC (推測目安)', value: cefrRow.toeic },
+    { label: '英検 (推測目安)', value: cefrRow.eiken },
   ];
   const badgeW = (barW - 16) / 3;
   badges.forEach((b, i) => {
@@ -783,7 +783,13 @@ function createResultCanvas(result: VocabResult): HTMLCanvasElement {
     ctx.fillStyle = '#1c1917';
     ctx.fillText(b.value, bx + 10, y + 38);
   });
-  y += 68;
+  y += 58;
+  // バッジ下の免責注記
+  ctx.font = '9px Arial, sans-serif';
+  ctx.fillStyle = '#a8a29e';
+  ctx.textAlign = 'left';
+  ctx.fillText('※ TOEIC・英検の換算は語彙力に基づく推測・目安です。各試験の公式換算ではありません。', PAD, y);
+  y += 18;
 
   // カテゴリ別
   ctx.font = '10px Arial, sans-serif';
@@ -1005,6 +1011,9 @@ export function ResultView({ result, allShownWords, selectedIds, onRetry, isHist
         <div className="mb-10 border border-stone-200 bg-white">
           <div className="px-6 py-4 border-b border-stone-100">
             <h4 className="font-bold text-stone-900 text-sm uppercase tracking-wider">試験換算の目安</h4>
+            <p className="text-xs text-stone-400 mt-1">
+              TOEIC・英検欄は語彙力から推測した参考値です。実際のスコアとは異なります。
+            </p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -1040,7 +1049,7 @@ export function ResultView({ result, allShownWords, selectedIds, onRetry, isHist
           </div>
           <div className="px-6 py-3 border-t border-stone-200 bg-stone-50">
             <p className="text-xs text-stone-400">
-              ※ 試験スコアとの換算は研究上の目安であり、各試験の公式換算ではありません。
+              ※ TOEIC・英検の換算は、語彙力スコアに基づく<strong className="font-medium">推測・参考目安</strong>です。各試験の公式換算ではなく、実際のスコアを保証するものではありません。
             </p>
           </div>
         </div>
