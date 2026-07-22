@@ -681,10 +681,11 @@ function HistoryChart() {
 // ── ランキングセクション ──────────────────────────────────────────────────────
 function RankingBar({ percentile, label }: { percentile: number; label: string }) {
   const topPct = 100 - percentile;
+  const topPctLabel = topPct < 1 ? '上位 1% 以内' : `上位 ${topPct.toFixed(1)}%`;
   return (
     <div className="mb-1">
       <div className="flex items-baseline gap-2 mb-2">
-        <span className="text-3xl font-serif font-bold text-stone-900">上位 {topPct.toFixed(1)}%</span>
+        <span className="text-3xl font-serif font-bold text-stone-900">{topPctLabel}</span>
         <span className="text-xs text-stone-400">{label}</span>
       </div>
       <div className="relative w-full h-2 bg-stone-100 rounded-full overflow-hidden">
