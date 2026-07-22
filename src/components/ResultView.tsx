@@ -681,6 +681,24 @@ function HistoryChart() {
 // ── ランキング位置グラフ ──────────────────────────────────────────────────────
 const RANK_BUCKETS = 20; // 各棒 = 5パーセンタイル幅
 
+// 逆正規CDF近似（Beasley-Springer-Moro法）
+function invNorm(p: number): number {
+  if (p <= 0.001) return -3.5;
+  if (p >= 0.999) return  3.5;
+  const t  = p < 0.5 ? Math.sqrt(-2 * Math.log(p)) : Math.sqrt(-2 * Math.log(1 - p));
+  const z  = (2.515517 + 0.802853 * t + 0.010328 * t * t)
+           / (1 + 1.432788 * t + 0.189269 * t * t + 0.001308 * t * t * t);
+  return p < 0.5 ? -(t - z) : (t - z);
+}
+
+// パーセンタイル位置 p（0〜1）における人口密度
+// = φ(Φ⁻¹(p))  ←「そのランク帯にどれだけ人が集中しているか」
+// 正規分布なら中央付近が最大、上位・下位の極端な位置は低くなる
+function rankDensity(p: number): number {
+  const z = invNorm(p);
+  return Math.exp(-0.5 * z * z);
+}
+
 function RankingDistributionChart({
   percentile,
   label,
@@ -690,10 +708,14 @@ function RankingDistributionChart({
   percentile: number;
   label:      string;
 }) {
-  // percentile は「下位何%か」(0〜100)。ユーザーが属するバケットを決定
-  const bucketPct    = 100 / RANK_BUCKETS; // 5%
-  const userBucket   = Math.min(Math.floor(percentile / bucketPct), RANK_BUCKETS - 1);
-  const BAR_HEIGHT   = 56;
+  const userBucket  = Math.min(Math.floor(percentile / (100 / RANK_BUCKETS)), RANK_BUCKETS - 1);
+  const MAX_BAR_PX  = 72;
+
+  const buckets = Array.from({ length: RANK_BUCKETS }, (_, i) => {
+    const center = (i + 0.5) / RANK_BUCKETS; // バケット中心（0〜1）
+    return { height: rankDensity(center), isUser: i === userBucket };
+  });
+  const maxH = Math.max(...buckets.map(b => b.height));
 
   const topPct      = 100 - percentile;
   const topPctLabel = topPct < 1 ? '上位 1% 以内' : `上位 ${topPct.toFixed(1)}%`;
@@ -705,18 +727,21 @@ function RankingDistributionChart({
         <span className="text-xs text-stone-400">{label}</span>
       </div>
 
-      {/* 位置棒グラフ（各棒 = ランキング5%幅） */}
-      <div className="relative" style={{ height: BAR_HEIGHT }}>
+      {/* 位置棒グラフ（高さ = そのランク帯の人口密度） */}
+      <div className="relative" style={{ height: MAX_BAR_PX }}>
         <div className="flex items-end gap-px h-full">
-          {Array.from({ length: RANK_BUCKETS }, (_, i) => (
-            <motion.div
-              key={i}
-              initial={{ height: 0 }}
-              animate={{ height: BAR_HEIGHT }}
-              transition={{ duration: 0.4, delay: i * 0.02, ease: 'easeOut' }}
-              className={`flex-1 ${i === userBucket ? 'bg-stone-900' : 'bg-stone-200'}`}
-            />
-          ))}
+          {buckets.map((b, i) => {
+            const barH = Math.max(3, Math.round((b.height / maxH) * MAX_BAR_PX));
+            return (
+              <motion.div
+                key={i}
+                initial={{ height: 0 }}
+                animate={{ height: barH }}
+                transition={{ duration: 0.5, delay: i * 0.025, ease: 'easeOut' }}
+                className={`flex-1 ${b.isUser ? 'bg-stone-900' : 'bg-stone-200'}`}
+              />
+            );
+          })}
         </div>
 
         {/* 中央値（50パーセンタイル）の赤縦線 */}
