@@ -5,12 +5,12 @@ import { fetchRankingStats, RankingStats } from '../supabase';
 
 // ── CEFR / 試験換算テーブル ──────────────────────────────────────────────────
 const CEFR_TABLE = [
-  { min: 0,     max: 1500,     cefr: 'A1', toeic: '〜300',    eiken: '5級',      label: 'Starter' },
-  { min: 1500,  max: 3000,     cefr: 'A2', toeic: '300〜500', eiken: '4〜3級',   label: 'Elementary' },
-  { min: 3000,  max: 5000,     cefr: 'B1', toeic: '500〜700', eiken: '3〜準2級', label: 'Intermediate' },
-  { min: 5000,  max: 7500,     cefr: 'B2', toeic: '700〜860', eiken: '準2〜2級', label: 'Upper Intermediate' },
-  { min: 7500,  max: 9500,     cefr: 'C1', toeic: '860〜950', eiken: '2〜準1級', label: 'Advanced' },
-  { min: 9500,  max: Infinity, cefr: 'C2', toeic: '950〜',    eiken: '1級',      label: 'Proficient' },
+  { min: 0,     max: 1500,     cefr: 'A1', toeic: '〜300',    eiken: '3級',        label: 'Starter' },
+  { min: 1500,  max: 3000,     cefr: 'A2', toeic: '300〜500', eiken: '準2級',      label: 'Elementary' },
+  { min: 3000,  max: 5000,     cefr: 'B1', toeic: '500〜700', eiken: '2級',        label: 'Intermediate' },
+  { min: 5000,  max: 7500,     cefr: 'B2', toeic: '700〜860', eiken: '準1級',      label: 'Upper Intermediate' },
+  { min: 7500,  max: 9500,     cefr: 'C1', toeic: '860〜950', eiken: '1級',        label: 'Advanced' },
+  { min: 9500,  max: Infinity, cefr: 'C2', toeic: '950〜',    eiken: '1級（上位）', label: 'Proficient' },
 ] as const;
 
 function getCefrRow(estimate: number) {
