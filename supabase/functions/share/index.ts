@@ -18,9 +18,14 @@ Deno.serve((req) => {
   const imageParams = new URLSearchParams({ score, cefr, toeic, eiken });
   const imageUrl = `${SUPABASE_URL}/functions/v1/og-image?${imageParams}`;
 
-  // XSS対策: 文字列をHTMLエスケープ
+  // XSS対策 + 文字化け防止: 非ASCII文字をHTMLエンティティに変換してpure ASCIIにする
   const esc = (s: string) =>
-    s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    s
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/[^\x00-\x7F]/g, (c) => `&#${c.codePointAt(0)};`);
 
   const html = `<!DOCTYPE html>
 <html lang="ja">
@@ -42,7 +47,7 @@ Deno.serve((req) => {
   <meta http-equiv="refresh" content="0; url=${esc(APP_URL)}">
 </head>
 <body>
-  <p><a href="${esc(APP_URL)}">アプリへ移動する</a></p>
+  <p><a href="${esc(APP_URL)}">Open App</a></p>
   <script>window.location.href = ${JSON.stringify(APP_URL)};</script>
 </body>
 </html>`;
