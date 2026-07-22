@@ -4,12 +4,13 @@ import { TestView } from './components/TestView';
 import { StepResultView } from './components/StepResultView';
 import { ResultView } from './components/ResultView';
 import { AdminView } from './components/AdminView';
-import { ViewState, Word, VocabResult } from './types';
+import { ViewState, Word, VocabResult, TestHistoryEntry } from './types';
 import { estimateWithCI, estimateTheta, selectNextWords } from './vocabEngine';
 import { fetchWords, logResponses, submitScore } from './supabase';
 
 const MAX_STEPS = 5;
 const SESSION_KEY = 'vocab_test_session_v1';
+const HISTORY_KEY = 'vocab_test_history_v1';
 
 // ── セッション永続化 ──────────────────────────────────────────────────────────
 type SavedSession = {
@@ -86,7 +87,7 @@ export default function App() {
   };
 
   const handleCompleteStep = (stepSelectedIds: Set<string>) => {
-    const newSelectedIds = new Set(selectedIds);
+    const newSelectedIds = new Set<string>(selectedIds);
     stepSelectedIds.forEach(id => newSelectedIds.add(id));
     setSelectedIds(newSelectedIds);
 
@@ -110,7 +111,16 @@ export default function App() {
   const handleNextStep = () => {
     if (step >= MAX_STEPS) {
       clearSession();
-      if (currentResult) submitScore(currentResult);
+      if (currentResult) {
+        submitScore(currentResult);
+        // 履歴をlocalStorageに保存（最大10件）
+        const entry: TestHistoryEntry = { estimate: currentResult.estimate, date: new Date().toISOString() };
+        try {
+          const raw = localStorage.getItem(HISTORY_KEY);
+          const prev: TestHistoryEntry[] = raw ? JSON.parse(raw) : [];
+          localStorage.setItem(HISTORY_KEY, JSON.stringify([...prev, entry].slice(-10)));
+        } catch { /* no-op */ }
+      }
       setView('finalResult');
     } else {
       const nextWords = selectNextWords(wordList, dummyWords, allShownWords, selectedIds);

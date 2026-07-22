@@ -8,6 +8,11 @@ export interface Word {
 
 export type ViewState = 'start' | 'test' | 'stepResult' | 'finalResult';
 
+export interface TestHistoryEntry {
+  estimate: number;
+  date: string; // ISO string
+}
+
 export interface VocabResult {
   estimate: number;
   lower: number;

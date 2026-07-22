@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Word, VocabResult } from '../types';
+import { Word, VocabResult, TestHistoryEntry } from '../types';
 import { fetchRankingStats, RankingStats } from '../supabase';
 
 // ── CEFR / 試験換算テーブル ──────────────────────────────────────────────────
@@ -18,6 +18,99 @@ function getCefrRow(estimate: number) {
     ?? CEFR_TABLE[CEFR_TABLE.length - 1];
 }
 
+// ── カテゴリ定義 ─────────────────────────────────────────────────────────────
+const CATEGORIES = [
+  { label: '基礎語',   levels: [1, 2, 3],     desc: 'Basic' },
+  { label: '一般語',   levels: [4, 5, 6],     desc: 'General' },
+  { label: '学術語',   levels: [7, 8],        desc: 'Academic' },
+  { label: '専門語',   levels: [9, 10],       desc: 'Advanced' },
+] as const;
+
+// ── カテゴリ別診断 ────────────────────────────────────────────────────────────
+function CategoryBreakdown({ breakdown }: { breakdown: { level: number; probability: number }[] }) {
+  return (
+    <div className="mb-10 border border-stone-200 bg-white p-6">
+      <h4 className="font-bold text-stone-900 mb-4 text-sm uppercase tracking-wider">
+        カテゴリ別 語彙診断
+      </h4>
+      <div className="grid grid-cols-2 gap-3">
+        {CATEGORIES.map(cat => {
+          const probs = cat.levels.map(lv => breakdown.find(b => b.level === lv)?.probability ?? 0);
+          const avg = probs.reduce((s, p) => s + p, 0) / probs.length;
+          const pct = Math.round(avg * 100);
+          return (
+            <div key={cat.label} className="border border-stone-100 p-4">
+              <div className="flex items-baseline justify-between mb-2">
+                <span className="text-xs text-stone-400 uppercase tracking-wider">{cat.desc}</span>
+                <span className="text-lg font-serif font-bold text-stone-900">{pct}%</span>
+              </div>
+              <p className="text-sm font-medium text-stone-700 mb-2">{cat.label}</p>
+              <div className="w-full h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${pct}%` }}
+                  transition={{ duration: 0.8, ease: 'easeOut' }}
+                  className={`h-full rounded-full ${
+                    pct >= 70 ? 'bg-stone-900' : pct >= 40 ? 'bg-stone-500' : 'bg-stone-300'
+                  }`}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── 弱点レベルのハイライト ────────────────────────────────────────────────────
+function WeaknessHighlight({ breakdown }: { breakdown: { level: number; probability: number }[] }) {
+  const weakLevels   = breakdown.filter(b => b.probability < 0.4).sort((a, b) => a.probability - b.probability);
+  const strongLevels = breakdown.filter(b => b.probability > 0.7).sort((a, b) => b.probability - a.probability);
+
+  if (weakLevels.length === 0 && strongLevels.length === 0) return null;
+
+  return (
+    <div className="mb-10 border border-stone-200 bg-white p-6">
+      <h4 className="font-bold text-stone-900 mb-4 text-sm uppercase tracking-wider">
+        学習フィードバック
+      </h4>
+      <div className="space-y-3">
+        {weakLevels.length > 0 && (
+          <div>
+            <p className="text-xs text-stone-400 uppercase tracking-wider mb-2">要強化</p>
+            {weakLevels.slice(0, 3).map(({ level, probability }) => (
+              <div key={level} className="flex items-center gap-3 mb-1.5">
+                <span className="text-xs font-mono bg-stone-100 text-stone-600 px-2 py-0.5 rounded">
+                  Lv {level}
+                </span>
+                <span className="text-sm text-stone-600">
+                  既知率 {Math.round(probability * 100)}% — このレベルの単語を重点的に学習しましょう。
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        {strongLevels.length > 0 && (
+          <div className={weakLevels.length > 0 ? 'pt-3 border-t border-stone-100' : ''}>
+            <p className="text-xs text-stone-400 uppercase tracking-wider mb-2">強み</p>
+            {strongLevels.slice(0, 3).map(({ level, probability }) => (
+              <div key={level} className="flex items-center gap-3 mb-1.5">
+                <span className="text-xs font-mono bg-stone-900 text-white px-2 py-0.5 rounded">
+                  Lv {level}
+                </span>
+                <span className="text-sm text-stone-600">
+                  既知率 {Math.round(probability * 100)}% — このレベルは得意です。
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── レベル別棒グラフ ─────────────────────────────────────────────────────────
 const MAX_BAR_PX = 80;
 
@@ -27,7 +120,6 @@ function LevelBarChart({ breakdown }: { breakdown: { level: number; probability:
       <h4 className="font-bold text-stone-900 mb-4 text-sm uppercase tracking-wider">
         レベル別 既知語率
       </h4>
-      {/* bars: flex items-end で下揃え、高さはピクセル指定で正確に描画 */}
       <div className="flex items-end gap-1.5" style={{ height: MAX_BAR_PX + 40 }}>
         {breakdown.map(({ level, probability }) => {
           const barPx = Math.max(2, Math.round(probability * MAX_BAR_PX));
@@ -37,18 +129,15 @@ function LevelBarChart({ breakdown }: { breakdown: { level: number; probability:
               className="flex-1 flex flex-col items-center"
               style={{ height: '100%', justifyContent: 'flex-end' }}
             >
-              {/* パーセント表示 */}
               <span className="text-[9px] text-stone-500 font-mono leading-none mb-1">
                 {Math.round(probability * 100)}%
               </span>
-              {/* バー（ピクセル高さでアニメーション） */}
               <motion.div
                 initial={{ height: 0 }}
                 animate={{ height: barPx }}
                 transition={{ duration: 0.7, delay: level * 0.05, ease: 'easeOut' }}
                 className="w-full bg-stone-900 rounded-t-sm"
               />
-              {/* レベル番号 */}
               <span className="text-[9px] text-stone-400 font-mono leading-none mt-1.5">
                 {level}
               </span>
@@ -58,6 +147,65 @@ function LevelBarChart({ breakdown }: { breakdown: { level: number; probability:
       </div>
       <p className="text-xs text-stone-400 mt-2">
         IRT（ラッシュモデル）による各レベルの推定既知割合
+      </p>
+    </div>
+  );
+}
+
+// ── 履歴グラフ（機能14） ──────────────────────────────────────────────────────
+const HISTORY_KEY = 'vocab_test_history_v1';
+const MAX_HISTORY_BAR_PX = 80;
+const MAX_VOCAB = 12000;
+
+function HistoryChart() {
+  const [history, setHistory] = useState<TestHistoryEntry[]>([]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(HISTORY_KEY);
+      if (raw) setHistory(JSON.parse(raw) as TestHistoryEntry[]);
+    } catch { /* no-op */ }
+  }, []);
+
+  if (history.length < 2) return null;
+
+  const maxEstimate = Math.max(...history.map(h => h.estimate), MAX_VOCAB * 0.3);
+
+  return (
+    <div className="mb-10 border border-stone-200 bg-white p-6">
+      <h4 className="font-bold text-stone-900 mb-4 text-sm uppercase tracking-wider">
+        スコア履歴
+      </h4>
+      <div className="flex items-end gap-2" style={{ height: MAX_HISTORY_BAR_PX + 40 }}>
+        {history.map((entry, i) => {
+          const barPx = Math.max(2, Math.round((entry.estimate / maxEstimate) * MAX_HISTORY_BAR_PX));
+          const date = new Date(entry.date);
+          const label = `${date.getMonth() + 1}/${date.getDate()}`;
+          const isLatest = i === history.length - 1;
+          return (
+            <div
+              key={i}
+              className="flex-1 flex flex-col items-center"
+              style={{ height: '100%', justifyContent: 'flex-end' }}
+            >
+              <span className="text-[9px] text-stone-500 font-mono leading-none mb-1">
+                {entry.estimate.toLocaleString()}
+              </span>
+              <motion.div
+                initial={{ height: 0 }}
+                animate={{ height: barPx }}
+                transition={{ duration: 0.7, delay: i * 0.08, ease: 'easeOut' }}
+                className={`w-full rounded-t-sm ${isLatest ? 'bg-stone-900' : 'bg-stone-300'}`}
+              />
+              <span className="text-[9px] text-stone-400 font-mono leading-none mt-1.5">
+                {label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-xs text-stone-400 mt-2">
+        過去のテスト結果（最大10件）。右端が今回のスコア。
       </p>
     </div>
   );
@@ -99,14 +247,12 @@ function RankingSection({ estimate }: { estimate: number }) {
     <div className="border border-stone-200 bg-white p-6 mb-10">
       <h4 className="font-bold text-stone-900 mb-4 text-sm uppercase tracking-wider">ランキング</h4>
 
-      {/* パーセンタイル表示 */}
       <div className="flex items-baseline gap-2 mb-4">
         <span className="text-4xl font-serif font-bold text-stone-900">
           上位 {(100 - ranking.percentile).toFixed(1)}%
         </span>
       </div>
 
-      {/* パーセンタイルバー */}
       <div className="mb-4">
         <div className="relative w-full h-2 bg-stone-100 rounded-full overflow-hidden">
           <motion.div
@@ -207,6 +353,20 @@ export function ResultView({ result, allShownWords, selectedIds, onRetry }: Prop
         {/* ── ランキング ── */}
         <RankingSection estimate={estimate} />
 
+        {/* ── 学習フィードバック（機能12） ── */}
+        <WeaknessHighlight breakdown={levelBreakdown} />
+
+        {/* ── カテゴリ別診断（機能11） ── */}
+        <CategoryBreakdown breakdown={levelBreakdown} />
+
+        {/* ── レベル別棒グラフ ── */}
+        <div className="mb-10 border border-stone-200 bg-white p-6">
+          <LevelBarChart breakdown={levelBreakdown} />
+        </div>
+
+        {/* ── スコア履歴（機能14） ── */}
+        <HistoryChart />
+
         {/* ── CEFR 換算表 ── */}
         <div className="mb-10 border border-stone-200 bg-white">
           <div className="px-6 py-4 border-b border-stone-100">
@@ -249,11 +409,6 @@ export function ResultView({ result, allShownWords, selectedIds, onRetry }: Prop
               ※ 試験スコアとの換算は研究上の目安であり、各試験の公式換算ではありません。
             </p>
           </div>
-        </div>
-
-        {/* ── レベル別棒グラフ ── */}
-        <div className="mb-10 border border-stone-200 bg-white p-6">
-          <LevelBarChart breakdown={levelBreakdown} />
         </div>
 
         {/* ── ダミー検出・アルゴリズム ── */}

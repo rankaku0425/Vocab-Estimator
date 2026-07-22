@@ -41,7 +41,14 @@ export function AdminView() {
     ? stats
     : stats.filter(s => s.level === levelFilter);
 
-  const readyCount = stats.filter(s => s.calibration_ready).length;
+  const readyCount   = stats.filter(s => s.calibration_ready).length;
+  const anomalyCount = stats.filter(s =>
+    s.response_count > 0 && (
+      s.correct_rate < 0.05 ||
+      s.correct_rate > 0.95 ||
+      (s.calibration_ready && Math.abs(s.proposed_b - s.b_param) > 1.5)
+    )
+  ).length;
 
   return (
     <div className="min-h-screen bg-[#fcfcfc] p-6">
@@ -54,6 +61,11 @@ export function AdminView() {
             <p className="text-stone-500 text-sm mt-1">単語統計・難易度キャリブレーション</p>
           </div>
           <div className="flex items-center gap-3">
+            {anomalyCount > 0 && (
+              <span className="text-sm text-amber-600">
+                異常値: <strong>{anomalyCount}</strong> 語
+              </span>
+            )}
             <span className="text-sm text-stone-500">
               キャリブレーション可能: <strong className="text-stone-900">{readyCount}</strong> 語
             </span>
@@ -119,11 +131,15 @@ export function AdminView() {
                   <th className="px-4 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">平均θ</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">提案 b</th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-stone-500 uppercase tracking-wider">状態</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-stone-500 uppercase tracking-wider">異常値</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((s, i) => {
                   const bDiff = s.proposed_b - s.b_param;
+                  const isTooHard  = s.response_count > 0 && s.correct_rate < 0.05;
+                  const isTooEasy  = s.response_count > 0 && s.correct_rate > 0.95;
+                  const isDrifted  = s.calibration_ready && Math.abs(bDiff) > 1.5;
                   return (
                     <tr
                       key={s.id}
@@ -165,6 +181,28 @@ export function AdminView() {
                             {s.response_count}/30
                           </span>
                         )}
+                      </td>
+                      <td className="px-4 py-2.5 text-center">
+                        <div className="flex flex-wrap gap-1 justify-center">
+                          {isTooHard && (
+                            <span className="inline-block bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full">
+                              難すぎ
+                            </span>
+                          )}
+                          {isTooEasy && (
+                            <span className="inline-block bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded-full">
+                              易すぎ
+                            </span>
+                          )}
+                          {isDrifted && (
+                            <span className="inline-block bg-amber-100 text-amber-700 text-xs px-2 py-0.5 rounded-full">
+                              乖離大
+                            </span>
+                          )}
+                          {!isTooHard && !isTooEasy && !isDrifted && (
+                            <span className="text-stone-300">—</span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
