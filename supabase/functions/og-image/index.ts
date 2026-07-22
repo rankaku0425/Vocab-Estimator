@@ -19,8 +19,13 @@ async function ensureResvg(): Promise<void> {
 }
 
 // ── フォント取得（必要な文字のみサブセット） ─────────────────────────────────
-// OGP 画像内で使う文字を列挙 → Google Fonts がその字種のみのサブセット woff2 を返す
-const GLYPH_SET = '語推定英検準級テスト0123456789〜,. ()ABCEFR12345上位';
+// OGP 画像内で使う文字をすべて列挙 → Google Fonts がそのグリフのみのサブセットを返す
+// 含めるもの: ヘッダー文字列・バッジラベル・日本語テキスト・記号・数字
+const GLYPH_SET =
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZ' +   // ヘッダー・CEFRラベル・TOEICラベル
+  '0123456789' +                    // スコア数字
+  '語彙力テスト英検推定準級上位学習' + // 日本語テキスト
+  '〜—#,. ()'                       // 記号類
 let fontCache: ArrayBuffer[] | null = null;
 
 async function getFonts(): Promise<ArrayBuffer[]> {
