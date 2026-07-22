@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { Word, VocabResult, Demographics } from './types';
 
+export type SelfEvaluation = '高すぎる' | 'だいたい正確' | '低すぎる';
+
 const supabaseUrl    = import.meta.env.VITE_SUPABASE_URL    as string;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
@@ -55,6 +57,7 @@ export async function submitScore(result: VocabResult, demographics?: Demographi
     upper:     result.upper,
     age_group: demographics?.ageGroup ?? null,
     gender:    demographics?.gender   ?? null,
+    purpose:   demographics?.purpose  ?? null,
   });
   if (error) console.error('スコア送信に失敗しました:', error);
 }
@@ -93,6 +96,40 @@ export async function fetchDemoRankingStats(
     });
   if (error) throw error;
   return data as DemoRankingStats;
+}
+
+// ── 実スコア送信（アイデア23） ────────────────────────────────────────────────
+export async function submitRealScore(
+  vocabEstimate: number,
+  toeicScore:    number | null,
+  eikenLevel:    string | null,
+  demographics?: Demographics,
+): Promise<void> {
+  const { error } = await supabase.from('real_scores').insert({
+    vocab_estimate: vocabEstimate,
+    toeic_score:    toeicScore,
+    eiken_level:    eikenLevel,
+    age_group:      demographics?.ageGroup ?? null,
+    gender:         demographics?.gender   ?? null,
+    purpose:        demographics?.purpose  ?? null,
+  });
+  if (error) console.error('実スコア送信失敗:', error);
+}
+
+// ── 自己評価送信（アイデア24） ────────────────────────────────────────────────
+export async function submitSelfEvaluation(
+  estimate:      number,
+  evaluation:    SelfEvaluation,
+  demographics?: Demographics,
+): Promise<void> {
+  const { error } = await supabase.from('self_evaluations').insert({
+    estimate,
+    evaluation,
+    age_group: demographics?.ageGroup ?? null,
+    gender:    demographics?.gender   ?? null,
+    purpose:   demographics?.purpose  ?? null,
+  });
+  if (error) console.error('自己評価送信失敗:', error);
 }
 
 // ── 管理：年代・性別別統計 ────────────────────────────────────────────────────

@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { Demographics, AgeGroup, Gender } from '../types';
+import { Demographics, AgeGroup, Gender, Purpose } from '../types';
 
 const AGE_GROUPS: AgeGroup[] = ['10代', '20代', '30代', '40代', '50代', '60代以上'];
 const GENDERS: Gender[]      = ['男性', '女性', 'その他'];
+const PURPOSES: Purpose[]    = ['受験・資格取得', '仕事・ビジネス', '海外留学・移住', '趣味・自己啓発'];
 
 interface Props {
   saved:      Demographics | null;
@@ -14,12 +15,13 @@ export function SurveyView({ saved, onComplete }: Props) {
   const [editing,   setEditing]   = useState(saved === null);
   const [ageGroup,  setAgeGroup]  = useState<AgeGroup | null>(saved?.ageGroup ?? null);
   const [gender,    setGender]    = useState<Gender   | null>(saved?.gender   ?? null);
+  const [purpose,   setPurpose]   = useState<Purpose  | null>(saved?.purpose  ?? null);
 
   const canProceed = ageGroup !== null && gender !== null;
 
   const handleSubmit = () => {
     if (!ageGroup || !gender) return;
-    onComplete({ ageGroup, gender });
+    onComplete({ ageGroup, gender, ...(purpose ? { purpose } : {}) });
   };
 
   return (
@@ -41,7 +43,7 @@ export function SurveyView({ saved, onComplete }: Props) {
         {saved && !editing ? (
           <div className="border border-stone-200 bg-white p-6 mb-8">
             <p className="text-xs text-stone-400 uppercase tracking-wider mb-4">前回の回答</p>
-            <div className="flex gap-6 mb-6">
+            <div className="flex gap-6 mb-6 flex-wrap">
               <div>
                 <p className="text-xs text-stone-400 mb-1">年代</p>
                 <p className="text-xl font-serif font-bold text-stone-900">{saved.ageGroup}</p>
@@ -50,6 +52,12 @@ export function SurveyView({ saved, onComplete }: Props) {
                 <p className="text-xs text-stone-400 mb-1">性別</p>
                 <p className="text-xl font-serif font-bold text-stone-900">{saved.gender}</p>
               </div>
+              {saved.purpose && (
+                <div>
+                  <p className="text-xs text-stone-400 mb-1">学習目的</p>
+                  <p className="text-xl font-serif font-bold text-stone-900">{saved.purpose}</p>
+                </div>
+              )}
             </div>
             <button
               onClick={() => setEditing(true)}
@@ -96,6 +104,29 @@ export function SurveyView({ saved, onComplete }: Props) {
                     }`}
                   >
                     {g}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 学習目的（任意） */}
+            <div>
+              <p className="text-sm font-medium text-stone-700 mb-1">
+                学習の目的
+                <span className="text-xs font-normal text-stone-400 ml-1">（任意）</span>
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {PURPOSES.map(p => (
+                  <button
+                    key={p}
+                    onClick={() => setPurpose(prev => prev === p ? null : p)}
+                    className={`py-3 text-sm font-medium border transition-colors ${
+                      purpose === p
+                        ? 'bg-stone-900 text-white border-stone-900'
+                        : 'bg-white text-stone-700 border-stone-200 hover:border-stone-500'
+                    }`}
+                  >
+                    {p}
                   </button>
                 ))}
               </div>

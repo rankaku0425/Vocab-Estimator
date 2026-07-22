@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Word, VocabResult, TestHistoryEntry, Demographics } from '../types';
-import { fetchRankingStats, RankingStats, fetchDemoRankingStats, DemoRankingStats, fetchDemographicStats, DemographicStat } from '../supabase';
+import { fetchRankingStats, RankingStats, fetchDemoRankingStats, DemoRankingStats, fetchDemographicStats, DemographicStat, submitSelfEvaluation, submitRealScore, SelfEvaluation } from '../supabase';
 
 // ── CEFR / 試験換算テーブル ──────────────────────────────────────────────────
 const CEFR_TABLE = [
@@ -202,6 +202,64 @@ function shortLabel(pct: number): string {
   return '未';
 }
 
+// ── 学習目的別ヒント（アイデア10） ───────────────────────────────────────────
+const PURPOSE_TIPS: Record<string, string> = {
+  '受験・資格取得': '語彙問題頻出の Lv5〜7 が最重要です。英検・TOEIC の頻出語を中心に、出題単語リストと照合しながら学習しましょう。',
+  '仕事・ビジネス': 'ビジネス英語に直結する Lv6〜8 を中心に強化しましょう。メール・会議・交渉で使う実用語を意識して取り入れるのが効果的です。',
+  '海外留学・移住': '日常会話（Lv3〜5）とアカデミック語彙（Lv7〜8）を並行して学習するのが効果的です。留学先での読み書きにも対応できる語彙幅を目指しましょう。',
+  '趣味・自己啓発': '興味ある分野の英語コンテンツ（映画・書籍・ポッドキャスト）を通じて、自然な文脈で語彙を広げましょう。楽しみながら続けることが最大の近道です。',
+};
+
+// ── 習熟パターン分析（アイデア8） ────────────────────────────────────────────
+function analyzePattern(breakdown: { level: number; probability: number }[]): { label: string; message: string } {
+  const probs = breakdown.map(b => b.probability);
+  const avg   = probs.reduce((s, p) => s + p, 0) / probs.length;
+
+  if (avg >= 0.8) return {
+    label: '高得点型',
+    message: '全レベルにわたって高い語彙力があります。より上位の専門語（Lv9〜10）に挑戦しましょう。',
+  };
+  if (avg <= 0.3) return {
+    label: '基礎強化型',
+    message: '基礎語彙を固めることが最優先です。Lv1〜3から着実に積み上げましょう。',
+  };
+
+  let isMonotone = true;
+  for (let i = 1; i < probs.length; i++) {
+    if (probs[i] > probs[i - 1] + 0.08) { isMonotone = false; break; }
+  }
+  if (isMonotone) return {
+    label: '均整型',
+    message: '語彙力はレベルに沿って均整のとれた成長曲線を描いています。この調子で次のレベルへ進みましょう。',
+  };
+
+  const hasGap = breakdown.some((item, i) => {
+    const prev       = breakdown[i - 1]?.probability ?? item.probability;
+    const next       = breakdown[i + 1]?.probability ?? item.probability;
+    const neighborAvg = (prev + next) / 2;
+    return neighborAvg - item.probability > 0.25;
+  });
+  if (hasGap) return {
+    label: 'ギャップ型',
+    message: '特定のレベルで習熟度が落ち込んでいます。下のギャップ警告のレベルを集中的に補強しましょう。',
+  };
+
+  return {
+    label: '発展途上型',
+    message: '語彙力は発展途上です。弱点レベルに集中して取り組むことで、効率よく全体スコアを伸ばせます。',
+  };
+}
+
+// ── レベルギャップ検出（アイデア9） ──────────────────────────────────────────
+function detectGaps(breakdown: { level: number; probability: number }[]): { level: number; probability: number }[] {
+  return breakdown.filter((item, i) => {
+    const prev        = breakdown[i - 1]?.probability ?? item.probability;
+    const next        = breakdown[i + 1]?.probability ?? item.probability;
+    const neighborAvg = (prev + next) / 2;
+    return neighborAvg - item.probability > 0.25;
+  });
+}
+
 // ── 年代別学習アドバイス（定性的のみ・数値は実DBから取得） ────────────────────
 const AGE_STUDY_TIPS: Record<string, { goalText: string; tipText: string }> = {
   '10代': {
@@ -289,11 +347,38 @@ function WeaknessHighlight({
   const showDemoComp = demoStat !== null && demoStat.count >= DEMO_MIN_COUNT;
   const demoDiff     = showDemoComp && demoStat ? estimate - Math.round(demoStat.avg_estimate) : 0;
 
+  // 習熟パターン分析（アイデア8）
+  const pattern = analyzePattern(breakdown);
+  // ギャップ検出（アイデア9）
+  const gaps = detectGaps(breakdown);
+  // 目的別ヒント（アイデア10）
+  const purposeTip = demographics?.purpose ? PURPOSE_TIPS[demographics.purpose] ?? null : null;
+
   return (
     <div className="mb-10 border border-stone-200 bg-white p-6">
       <h4 className="font-bold text-stone-900 mb-5 text-sm uppercase tracking-wider">
         学習フィードバック
       </h4>
+
+      {/* ⓪ 習熟パターン（アイデア8） */}
+      <div className="flex items-start gap-3 mb-5 pb-5 border-b border-stone-100">
+        <span className="text-[11px] font-medium bg-stone-900 text-white px-2 py-0.5 shrink-0 mt-0.5">
+          {pattern.label}
+        </span>
+        <p className="text-sm text-stone-600">{pattern.message}</p>
+      </div>
+
+      {/* ⓪ ギャップ警告（アイデア9） */}
+      {gaps.length > 0 && (
+        <div className="border-l-4 border-stone-400 bg-stone-50 pl-4 py-3 mb-5">
+          <p className="text-xs text-stone-500 uppercase tracking-wider mb-1">レベルギャップ検出</p>
+          {gaps.map(g => (
+            <p key={g.level} className="text-sm text-stone-700">
+              Lv{g.level} の習熟度（{Math.round(g.probability * 100)}%）が前後のレベルと比べて大きく落ち込んでいます。集中的な復習をお勧めします。
+            </p>
+          ))}
+        </div>
+      )}
 
       {/* ① 最優先学習レベル（具体的な単語つき） */}
       {priorityLevel && Math.round(priorityLevel.probability * 100) < 80 && (
@@ -410,7 +495,6 @@ function WeaknessHighlight({
             の強化が最も効果的です。
           </p>
           {(() => {
-            // 前のカテゴリがすでに定着しているかチェック
             const catIndex = catAvg.findIndex(c => c.cat.label === recommended.cat.label);
             const prevCat  = catIndex > 0 ? catAvg[catIndex - 1] : null;
             const prevMastered = prevCat && prevCat.avg >= 0.8;
@@ -424,6 +508,16 @@ function WeaknessHighlight({
             }
             return null;
           })()}
+        </div>
+      )}
+
+      {/* ⑥ 学習目的別ヒント（アイデア10） */}
+      {purposeTip && demographics?.purpose && (
+        <div className="border-t border-stone-100 pt-4 mt-4">
+          <p className="text-xs text-stone-400 uppercase tracking-wider mb-1">
+            目的別ヒント — {demographics.purpose}
+          </p>
+          <p className="text-sm text-stone-600 leading-relaxed">{purposeTip}</p>
         </div>
       )}
     </div>
@@ -867,7 +961,15 @@ function createResultCanvas(result: VocabResult): HTMLCanvasElement {
 }
 
 // ── エクスポートボタン ────────────────────────────────────────────────────────
-function ExportButtons({ result }: { result: VocabResult }) {
+function ExportButtons({
+  result,
+  allShownWords,
+  selectedIds,
+}: {
+  result: VocabResult;
+  allShownWords: Word[];
+  selectedIds: Set<string>;
+}) {
   const [exporting, setExporting] = useState<'pdf' | 'png' | null>(null);
 
   const exportPNG = async () => {
@@ -896,10 +998,40 @@ function ExportButtons({ result }: { result: VocabResult }) {
     } finally { setExporting(null); }
   };
 
+  // アイデア5: 知らなかった単語のCSVダウンロード
+  const downloadCSV = () => {
+    const unknownWords = allShownWords.filter(w => !w.isDummy && !selectedIds.has(w.id));
+    if (unknownWords.length === 0) return;
+    const csv = 'word,level\n' + unknownWords.map(w => `${w.word},${w.level}`).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'unknown_words.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // アイデア19: Anki形式エクスポート（タブ区切りテキスト）
+  const downloadAnki = () => {
+    const unknownWords = allShownWords.filter(w => !w.isDummy && !selectedIds.has(w.id));
+    if (unknownWords.length === 0) return;
+    const tsv  = unknownWords.map(w => `${w.word}\tLv${w.level}（英語語彙力テスト）`).join('\n');
+    const blob = new Blob([tsv], { type: 'text/plain;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'anki_words.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const unknownCount = allShownWords.filter(w => !w.isDummy && !selectedIds.has(w.id)).length;
+
   return (
     <div className="mb-12">
       <h4 className="font-bold text-stone-900 mb-3 text-sm uppercase tracking-wider">結果を保存</h4>
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3 mb-4">
         <button
           onClick={exportPNG}
           disabled={!!exporting}
@@ -913,6 +1045,145 @@ function ExportButtons({ result }: { result: VocabResult }) {
           className="border border-stone-900 text-stone-900 hover:bg-stone-900 hover:text-white text-sm font-medium py-2.5 px-5 transition-colors disabled:opacity-40"
         >
           {exporting === 'pdf' ? '生成中...' : 'PDF で保存'}
+        </button>
+      </div>
+      {unknownCount > 0 && (
+        <div>
+          <p className="text-xs text-stone-400 mb-2">
+            知らなかった単語 {unknownCount} 語を書き出す
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={downloadCSV}
+              className="border border-stone-300 text-stone-700 hover:bg-stone-900 hover:text-white hover:border-stone-900 text-sm font-medium py-2 px-4 transition-colors"
+            >
+              CSV ダウンロード
+            </button>
+            <button
+              onClick={downloadAnki}
+              className="border border-stone-300 text-stone-700 hover:bg-stone-900 hover:text-white hover:border-stone-900 text-sm font-medium py-2 px-4 transition-colors"
+            >
+              Anki 用エクスポート
+            </button>
+          </div>
+          <p className="text-xs text-stone-400 mt-1.5">
+            Anki 用ファイルはタブ区切り形式です。裏面に日本語訳を追加してお使いください。
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 自己評価（アイデア24） ────────────────────────────────────────────────────
+function SelfEvaluationSection({ result, demographics }: { result: VocabResult; demographics?: Demographics }) {
+  const [submitted, setSubmitted] = useState(false);
+  const [loading,   setLoading]   = useState(false);
+
+  const handleEval = async (evaluation: SelfEvaluation) => {
+    setLoading(true);
+    await submitSelfEvaluation(result.estimate, evaluation, demographics);
+    setSubmitted(true);
+    setLoading(false);
+  };
+
+  if (submitted) {
+    return (
+      <div className="mb-10 border border-stone-200 bg-white p-6">
+        <p className="text-sm text-stone-500">フィードバックありがとうございます。今後の精度向上に役立てます。</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-10 border border-stone-200 bg-white p-6">
+      <h4 className="font-bold text-stone-900 mb-3 text-sm uppercase tracking-wider">
+        この結果はあなたの感覚と合っていますか？
+      </h4>
+      <div className="flex gap-3 flex-wrap">
+        {(['高すぎる', 'だいたい正確', '低すぎる'] as SelfEvaluation[]).map(ev => (
+          <button
+            key={ev}
+            onClick={() => handleEval(ev)}
+            disabled={loading}
+            className="border border-stone-300 text-stone-700 hover:bg-stone-900 hover:text-white hover:border-stone-900 text-sm font-medium py-2.5 px-5 transition-colors disabled:opacity-40"
+          >
+            {ev}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── 実スコア入力（アイデア23） ────────────────────────────────────────────────
+const EIKEN_LEVELS = ['なし', '5級', '4級', '3級', '準2級', '2級', '準1級', '1級'] as const;
+
+function RealScoreSection({ result, demographics }: { result: VocabResult; demographics?: Demographics }) {
+  const [toeicScore, setToeicScore] = useState('');
+  const [eikenLevel, setEikenLevel] = useState<string>('なし');
+  const [submitted,  setSubmitted]  = useState(false);
+  const [loading,    setLoading]    = useState(false);
+
+  const canSubmit = toeicScore !== '' || eikenLevel !== 'なし';
+
+  const handleSubmit = async () => {
+    if (!canSubmit) return;
+    setLoading(true);
+    const toeic = toeicScore !== '' ? parseInt(toeicScore, 10) : null;
+    const eiken = eikenLevel !== 'なし' ? eikenLevel : null;
+    await submitRealScore(result.estimate, toeic, eiken, demographics);
+    setSubmitted(true);
+    setLoading(false);
+  };
+
+  if (submitted) {
+    return (
+      <div className="mb-10 border border-stone-200 bg-white p-6">
+        <p className="text-sm text-stone-500">ご協力ありがとうございました。データはスコア精度向上に活用します。</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-10 border border-stone-200 bg-white p-6">
+      <h4 className="font-bold text-stone-900 mb-2 text-sm uppercase tracking-wider">
+        実際のスコアを教えてください
+        <span className="text-xs font-normal text-stone-400 ml-2">（任意）</span>
+      </h4>
+      <p className="text-xs text-stone-400 mb-5">
+        入力いただいたデータは今後の推定精度向上に活用します。個人を特定する情報は含まれません。
+      </p>
+      <div className="flex flex-wrap gap-4 items-end">
+        <div>
+          <label className="text-xs text-stone-500 block mb-1">TOEIC スコア</label>
+          <input
+            type="number"
+            min="0"
+            max="990"
+            value={toeicScore}
+            onChange={e => setToeicScore(e.target.value)}
+            placeholder="例: 750"
+            className="border border-stone-300 text-stone-900 text-sm py-2 px-3 w-28 focus:outline-none focus:border-stone-600"
+          />
+          <span className="text-xs text-stone-400 ml-1">点</span>
+        </div>
+        <div>
+          <label className="text-xs text-stone-500 block mb-1">英検</label>
+          <select
+            value={eikenLevel}
+            onChange={e => setEikenLevel(e.target.value)}
+            className="border border-stone-300 text-stone-900 text-sm py-2 px-3 focus:outline-none focus:border-stone-600"
+          >
+            {EIKEN_LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
+        </div>
+        <button
+          onClick={handleSubmit}
+          disabled={!canSubmit || loading}
+          className="border border-stone-900 text-stone-900 hover:bg-stone-900 hover:text-white text-sm font-medium py-2 px-5 transition-colors disabled:opacity-40"
+        >
+          {loading ? '送信中...' : '送信する'}
         </button>
       </div>
     </div>
@@ -1085,8 +1356,18 @@ export function ResultView({ result, allShownWords, selectedIds, onRetry, isHist
           </div>
         </div>
 
+        {/* ── 自己評価（アイデア24）：新規テスト完了時のみ ── */}
+        {!isHistory && (
+          <SelfEvaluationSection result={result} demographics={demographics} />
+        )}
+
+        {/* ── 実スコア入力（アイデア23）：新規テスト完了時のみ ── */}
+        {!isHistory && (
+          <RealScoreSection result={result} demographics={demographics} />
+        )}
+
         {/* ── エクスポート ── */}
-        <ExportButtons result={result} />
+        <ExportButtons result={result} allShownWords={allShownWords} selectedIds={selectedIds} />
 
         <button
           onClick={onRetry}
