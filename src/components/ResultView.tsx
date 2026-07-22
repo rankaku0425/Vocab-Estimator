@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Word, VocabResult, TestHistoryEntry, Demographics } from '../types';
-import { fetchRankingStats, RankingStats, fetchDemoRankingStats, DemoRankingStats } from '../supabase';
+import { fetchRankingStats, RankingStats, fetchDemoRankingStats, DemoRankingStats, fetchDemographicStats, DemographicStat } from '../supabase';
 
 // ── CEFR / 試験換算テーブル ──────────────────────────────────────────────────
 const CEFR_TABLE = [
@@ -202,43 +202,37 @@ function shortLabel(pct: number): string {
   return '未';
 }
 
-// ── 年代別コンテキスト ────────────────────────────────────────────────────────
-const AGE_CONTEXT: Record<string, {
-  typical: number; target: number; goalText: string; tipText: string;
-}> = {
+// ── 年代別学習アドバイス（定性的のみ・数値は実DBから取得） ────────────────────
+const AGE_STUDY_TIPS: Record<string, { goalText: string; tipText: string }> = {
   '10代': {
-    typical: 3500, target: 5000,
     goalText: '大学受験・英検2級（B1）',
-    tipText: '10代は語彙吸収が最も効率的な時期です。基礎語（Lv1〜3）を固めた後、受験頻出の一般語（Lv4〜6）を集中強化しましょう。単語帳と英文読解の組み合わせが効果的です。',
+    tipText: '10代は語彙吸収が最も効率的な時期です。まず基礎語（Lv1〜3）を完全に固め、それが済んだら受験頻出の一般語（Lv4〜6）を集中強化しましょう。単語帳と英文読解の組み合わせが効果的です。',
   },
   '20代': {
-    typical: 5500, target: 7500,
     goalText: 'TOEIC 700〜・就職・グローバルビジネス（B2）',
-    tipText: '就職・キャリアに直結する語彙力が重要な時期です。一般語（Lv4〜6）を押さえた上で、学術語・ビジネス語（Lv7〜8）への橋渡しを意識しましょう。英語ニュースや専門書の多読が有効です。',
+    tipText: '就職・キャリアに直結する語彙力が重要な時期です。基礎〜一般語を土台として、学術語・ビジネス語（Lv7〜8）への橋渡しを意識しましょう。英語ニュースや専門書の多読が有効です。',
   },
   '30代': {
-    typical: 5500, target: 7500,
     goalText: 'ビジネス英語・社内外コミュニケーション（B2）',
-    tipText: 'ビジネスで使える「実用語彙」の獲得が鍵です。一般語から学術語（Lv5〜8）の範囲が実務に最も直結します。業界特有の専門語も意識して取り入れましょう。',
+    tipText: 'ビジネスで使える「実用語彙」の獲得が鍵です。基礎〜一般語が定着していれば、学術語（Lv7〜8）の範囲が実務に最も直結します。業界特有の専門語も意識して取り入れましょう。',
   },
   '40代': {
-    typical: 5000, target: 7000,
     goalText: '英語力の維持・実務活用（B1〜B2）',
-    tipText: '語彙は継続的な接触で定着します。弱点レベルに集中しつつ、既習語との関連付けを意識することで効率よく習得できます。週単位で少しずつ積み上げる学習が持続しやすいです。',
+    tipText: '語彙は継続的な接触で定着します。弱点レベルから順番に、既習語との関連付けを意識しながら取り組むことで効率よく習得できます。週単位で少しずつ積み上げる学習が持続しやすいです。',
   },
   '50代': {
-    typical: 4500, target: 6500,
     goalText: '語彙力の深化・教養英語（B1〜B2）',
-    tipText: '深い語彙理解が強みになります。単語を文脈・語源と結びつけて覚えると定着しやすいです。既知語の周辺語（類義語・反義語）を広げることで語彙ネットワークが強化されます。',
+    tipText: '深い語彙理解が強みになります。単語を文脈・語源と結びつけて覚えると定着しやすいです。まず未定着のレベルを確実に固めてから、上位レベルへ進みましょう。',
   },
   '60代以上': {
-    typical: 4000, target: 6000,
     goalText: '継続学習・知的探求（B1）',
     tipText: '語彙学習に遅すぎることはありません。毎日少しずつ弱点レベルの単語に接することが最大の近道です。好きな英語コンテンツ（映画・書籍・ニュース）を通じた自然な学習も効果的です。',
   },
 };
 
 // ── 弱点レベルのハイライト ────────────────────────────────────────────────────
+const DEMO_MIN_COUNT = 5; // 比較表示に必要な最低データ件数
+
 function WeaknessHighlight({
   breakdown,
   allShownWords,
@@ -252,23 +246,48 @@ function WeaknessHighlight({
   demographics?: Demographics;
   estimate: number;
 }) {
+  const [demoStat, setDemoStat] = useState<DemographicStat | null>(null);
+
+  useEffect(() => {
+    if (!demographics) return;
+    fetchDemographicStats()
+      .then(stats => {
+        const match = stats.find(
+          s => s.age_group === demographics.ageGroup && s.gender === demographics.gender
+        );
+        setDemoStat(match ?? null);
+      })
+      .catch(() => setDemoStat(null));
+  }, [demographics]);
+
+  // カテゴリ別の平均既知率を計算
+  const catAvg = CATEGORIES.map(cat => {
+    const probs = (cat.levels as readonly number[]).map(lv => breakdown.find(b => b.level === lv)?.probability ?? 0);
+    const avg = probs.reduce((s, p) => s + p, 0) / probs.length;
+    return { cat, avg };
+  });
+
   // 最優先学習レベル: 出題実単語があるレベルの中で最も既知率が低いもの
   const levelsWithWords = breakdown.filter(b =>
     allShownWords.some(w => !w.isDummy && w.level === b.level)
   );
   const priorityLevel = [...levelsWithWords].sort((a, b) => a.probability - b.probability)[0] ?? null;
 
-  // カテゴリ推奨: 80%未満の中で平均が最も低いカテゴリ
-  const catAvg = CATEGORIES.map(cat => {
-    const probs = (cat.levels as readonly number[]).map(lv => breakdown.find(b => b.level === lv)?.probability ?? 0);
-    const avg = probs.reduce((s, p) => s + p, 0) / probs.length;
-    return { cat, avg };
-  });
-  const recommended = catAvg.filter(c => c.avg < 0.8).sort((a, b) => a.avg - b.avg)[0] ?? null;
+  // 次のステップ: 基礎から順に「まだマスターしていない（avg < 0.8）」最初のカテゴリ
+  // → 低レベルの穴を先に埋めることで上位レベルの習得効率が上がる
+  const recommended = catAvg
+    .filter(c => c.avg < 0.8)
+    .sort((a, b) =>
+      Math.min(...(a.cat.levels as unknown as number[])) -
+      Math.min(...(b.cat.levels as unknown as number[]))
+    )[0] ?? null;
 
-  // 年代コンテキスト
-  const ageCtx = demographics ? AGE_CONTEXT[demographics.ageGroup] ?? null : null;
-  const diff    = ageCtx ? estimate - ageCtx.typical : 0;
+  // 年代別アドバイス（定性的）
+  const studyTip = demographics ? AGE_STUDY_TIPS[demographics.ageGroup] ?? null : null;
+
+  // 同グループ比較（実DBデータ）
+  const showDemoComp = demoStat !== null && demoStat.count >= DEMO_MIN_COUNT;
+  const demoDiff     = showDemoComp && demoStat ? estimate - Math.round(demoStat.avg_estimate) : 0;
 
   return (
     <div className="mb-10 border border-stone-200 bg-white p-6">
@@ -276,7 +295,7 @@ function WeaknessHighlight({
         学習フィードバック
       </h4>
 
-      {/* 最優先学習レベル */}
+      {/* ① 最優先学習レベル（具体的な単語つき） */}
       {priorityLevel && Math.round(priorityLevel.probability * 100) < 80 && (
         <div className="bg-stone-50 border border-stone-200 p-4 mb-5">
           <p className="text-xs text-stone-400 uppercase tracking-wider mb-1">最優先学習レベル</p>
@@ -287,9 +306,9 @@ function WeaknessHighlight({
             </span>
           </p>
           {(() => {
-            const levelWords  = allShownWords.filter(w => !w.isDummy && w.level === priorityLevel.level);
+            const levelWords   = allShownWords.filter(w => !w.isDummy && w.level === priorityLevel.level);
             const unknownWords = levelWords.filter(w => !selectedIds.has(w.id));
-            const knownWords   = levelWords.filter(w => selectedIds.has(w.id));
+            const knownWords   = levelWords.filter(w =>  selectedIds.has(w.id));
             if (levelWords.length === 0) return null;
             return (
               <div className="space-y-3">
@@ -310,9 +329,7 @@ function WeaknessHighlight({
                     <p className="text-xs text-stone-400 mb-1.5">知っていた単語:</p>
                     <div className="flex flex-wrap gap-1.5">
                       {knownWords.map(w => (
-                        <span key={w.id} className="text-xs text-stone-400 px-2 py-0.5">
-                          {w.word}
-                        </span>
+                        <span key={w.id} className="text-xs text-stone-400 px-2 py-0.5">{w.word}</span>
                       ))}
                     </div>
                   </div>
@@ -323,33 +340,66 @@ function WeaknessHighlight({
         </div>
       )}
 
-      {/* 年代別インサイト */}
-      {ageCtx && demographics && (
+      {/* ② 実データによる同グループ比較（データ不足なら非表示） */}
+      {showDemoComp && demoStat && demographics && (
         <div className="mb-5 border-l-2 border-stone-900 pl-4">
           <p className="text-xs text-stone-400 uppercase tracking-wider mb-2">
-            {demographics.ageGroup}・{demographics.gender} 向けインサイト
+            {demographics.ageGroup}・{demographics.gender} グループ比較
+            <span className="ml-1 normal-case font-normal">（{demoStat.count}人のデータ）</span>
           </p>
-          <p className="text-sm text-stone-700 mb-1 leading-relaxed">
-            {demographics.ageGroup}の平均的な語彙力は約{ageCtx.typical.toLocaleString()}語です。
-            あなたのスコア（{estimate.toLocaleString()}語）は
-            <span className="font-semibold text-stone-900">
-              {diff >= 0
-                ? `同年代の平均より約${Math.abs(diff).toLocaleString()}語上`
-                : `同年代の平均より約${Math.abs(diff).toLocaleString()}語下`}
+          <p className="text-sm text-stone-700 leading-relaxed">
+            同グループの平均語彙力は
+            <span className="font-semibold text-stone-900 mx-1">
+              {Math.round(demoStat.avg_estimate).toLocaleString()}語
+            </span>
+            です。あなたのスコア（{estimate.toLocaleString()}語）は
+            <span className="font-semibold text-stone-900 ml-1">
+              {demoDiff >= 0
+                ? `平均より${Math.abs(demoDiff).toLocaleString()}語上`
+                : `平均より${Math.abs(demoDiff).toLocaleString()}語下`}
             </span>
             です。
           </p>
-          <p className="text-xs text-stone-500 mb-3">
-            目安の目標: <span className="font-medium text-stone-700">{ageCtx.goalText}</span>
-            {estimate < ageCtx.target
-              ? `（目標まであと約${(ageCtx.target - estimate).toLocaleString()}語）`
-              : ' — 目安達成。さらに上を目指しましょう。'}
-          </p>
-          <p className="text-sm text-stone-600 leading-relaxed">{ageCtx.tipText}</p>
         </div>
       )}
 
-      {/* カテゴリ推奨 */}
+      {/* ③ 年代別アドバイス（定性的・常に表示） */}
+      {studyTip && demographics && (
+        <div className="mb-5">
+          <p className="text-xs text-stone-400 uppercase tracking-wider mb-1">
+            {demographics.ageGroup}向け 学習目標の目安
+          </p>
+          <p className="text-xs font-medium text-stone-700 mb-2">{studyTip.goalText}</p>
+          <p className="text-sm text-stone-600 leading-relaxed">{studyTip.tipText}</p>
+        </div>
+      )}
+
+      {/* ④ カテゴリ別の習熟状況サマリー */}
+      <div className="mb-5">
+        <p className="text-xs text-stone-400 uppercase tracking-wider mb-2">カテゴリ習熟サマリー</p>
+        <div className="space-y-1">
+          {catAvg.map(({ cat, avg }) => {
+            const pct  = Math.round(avg * 100);
+            const info = proficiencyInfo(pct);
+            const isFrontier = recommended?.cat.label === cat.label;
+            return (
+              <div key={cat.label} className={`flex items-center gap-2 py-1 px-2 ${isFrontier ? 'bg-stone-50' : ''}`}>
+                <span className="text-xs text-stone-500 w-16 shrink-0">{cat.label}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${info.cls}`}>{info.label}</span>
+                <div className="flex-1 h-1 bg-stone-100 rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full ${barColorCls(pct)}`} style={{ width: `${pct}%` }} />
+                </div>
+                <span className="text-[10px] font-mono text-stone-500 w-8 text-right shrink-0">{pct}%</span>
+                {isFrontier && (
+                  <span className="text-[10px] text-stone-900 font-medium shrink-0">← 次の目標</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ⑤ 次のステップ（基礎から順に推奨 → アドバイスと整合） */}
       {recommended && (
         <div className="border-t border-stone-100 pt-4">
           <p className="text-xs text-stone-400 uppercase tracking-wider mb-1">次のステップ</p>
@@ -358,10 +408,22 @@ function WeaknessHighlight({
               「{recommended.cat.label}（Lv {(recommended.cat.levels as readonly number[]).join('–')}）」
             </span>
             の強化が最も効果的です。
-            {ageCtx && recommended.cat.levels.some(lv => lv >= 7) && estimate < 7000 && (
-              <span className="text-stone-500"> まずは一般語（Lv4〜6）を確実に固めてからチャレンジしましょう。</span>
-            )}
           </p>
+          {(() => {
+            // 前のカテゴリがすでに定着しているかチェック
+            const catIndex = catAvg.findIndex(c => c.cat.label === recommended.cat.label);
+            const prevCat  = catIndex > 0 ? catAvg[catIndex - 1] : null;
+            const prevMastered = prevCat && prevCat.avg >= 0.8;
+            if (prevMastered) {
+              return (
+                <p className="text-xs text-stone-400 mt-1">
+                  {prevCat.cat.label}（Lv {(prevCat.cat.levels as readonly number[]).join('–')}）は
+                  習得済みです。次のステージへ進む準備ができています。
+                </p>
+              );
+            }
+            return null;
+          })()}
         </div>
       )}
     </div>
