@@ -1371,6 +1371,9 @@ export function ResultView({ result, allShownWords, selectedIds, onRetry, isHist
           </div>
         </div>
 
+        {/* ── SNS シェア ── */}
+        <ShareSection result={result} />
+
         {/* ── ランキング ── */}
         <RankingSection estimate={estimate} demographics={demographics} />
 
@@ -1471,9 +1474,6 @@ export function ResultView({ result, allShownWords, selectedIds, onRetry, isHist
             </ul>
           </div>
         </div>
-
-        {/* ── SNS シェア ── */}
-        <ShareSection result={result} />
 
         {/* ── 自己評価（アイデア24）：新規テスト完了時のみ ── */}
         {!isHistory && (
