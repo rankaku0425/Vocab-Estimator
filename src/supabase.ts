@@ -225,3 +225,55 @@ export async function deleteWord(id: string): Promise<void> {
   const { error } = await supabase.from('words').delete().eq('id', id);
   if (error) throw error;
 }
+
+// ── 統計分析：スコア分布 ──────────────────────────────────────────────────────
+export interface ScoreDistribution {
+  bucket_min: number;
+  bucket_max: number;
+  count:      number;
+}
+
+export async function fetchScoreDistribution(): Promise<ScoreDistribution[]> {
+  const { data, error } = await supabase.rpc('get_score_distribution');
+  if (error) throw error;
+  return (data as ScoreDistribution[]) ?? [];
+}
+
+// ── 統計分析：日別テスト数 ────────────────────────────────────────────────────
+export interface DailyCount {
+  test_date: string;
+  count:     number;
+}
+
+export async function fetchDailyTestCounts(): Promise<DailyCount[]> {
+  const { data, error } = await supabase.rpc('get_daily_test_counts');
+  if (error) throw error;
+  return (data as DailyCount[]) ?? [];
+}
+
+// ── 統計分析：自己評価統計 ────────────────────────────────────────────────────
+export interface SelfEvalStat {
+  evaluation:   string;
+  count:        number;
+  avg_estimate: number;
+}
+
+export async function fetchSelfEvaluationStats(): Promise<SelfEvalStat[]> {
+  const { data, error } = await supabase.rpc('get_self_evaluation_stats');
+  if (error) throw error;
+  return (data as SelfEvalStat[]) ?? [];
+}
+
+// ── 統計分析：学習目的別統計 ──────────────────────────────────────────────────
+export interface PurposeStat {
+  purpose:         string;
+  count:           number;
+  avg_estimate:    number;
+  median_estimate: number;
+}
+
+export async function fetchPurposeStats(): Promise<PurposeStat[]> {
+  const { data, error } = await supabase.rpc('get_purpose_stats');
+  if (error) throw error;
+  return (data as PurposeStat[]) ?? [];
+}

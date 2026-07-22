@@ -1160,6 +1160,37 @@ function ExportButtons({
   );
 }
 
+// ── SNS シェア ────────────────────────────────────────────────────────────────
+function ShareSection({ result }: { result: VocabResult }) {
+  const hidden = window.location.hash.includes('snsnone');
+  if (hidden) return null;
+
+  const cefrRow = getCefrRow(result.estimate);
+  const pageUrl = window.location.href.replace(/#.*$/, '');
+  const text = [
+    `英語語彙力テストの結果：推定 ${result.estimate.toLocaleString()} 語（CEFR ${cefrRow.cefr}）でした！`,
+    `TOEIC ${cefrRow.toeic} / 英検 ${cefrRow.eiken} 相当`,
+    '',
+    pageUrl,
+    '#英語語彙力テスト #英語学習',
+  ].join('\n');
+
+  return (
+    <div className="mb-10">
+      <h4 className="font-bold text-stone-900 mb-3 text-sm uppercase tracking-wider">結果をシェア</h4>
+      <a
+        href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-2 border border-stone-300 text-stone-700 hover:bg-stone-900 hover:text-white hover:border-stone-900 text-sm font-medium py-2.5 px-5 transition-colors"
+      >
+        <span className="font-bold text-base leading-none">𝕏</span>
+        Twitter / X でシェア
+      </a>
+    </div>
+  );
+}
+
 // ── 自己評価（アイデア24） ────────────────────────────────────────────────────
 function SelfEvaluationSection({ result, demographics }: { result: VocabResult; demographics?: Demographics }) {
   const [submitted, setSubmitted] = useState(false);
@@ -1440,6 +1471,9 @@ export function ResultView({ result, allShownWords, selectedIds, onRetry, isHist
             </ul>
           </div>
         </div>
+
+        {/* ── SNS シェア：新規テスト完了時のみ ── */}
+        {!isHistory && <ShareSection result={result} />}
 
         {/* ── 自己評価（アイデア24）：新規テスト完了時のみ ── */}
         {!isHistory && (

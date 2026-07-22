@@ -4,6 +4,10 @@ import {
   fetchDemographicStats, DemographicStat,
   fetchToeicCorrelation, ToeicCorrelation,
   fetchEikenCorrelation, EikenCorrelation,
+  fetchScoreDistribution, ScoreDistribution,
+  fetchDailyTestCounts, DailyCount,
+  fetchSelfEvaluationStats, SelfEvalStat,
+  fetchPurposeStats, PurposeStat,
 } from '../supabase';
 
 type LevelFilter = 'all' | number;
@@ -422,8 +426,200 @@ function RealScoreView({ active, loaded, onFirstLoad }: { active: boolean; loade
   );
 }
 
+// ── 統計分析ビュー ────────────────────────────────────────────────────────────
+function AnalysisView({ active, loaded, onFirstLoad }: { active: boolean; loaded: boolean; onFirstLoad: () => void }) {
+  const [scoreData,   setScoreData]   = useState<ScoreDistribution[]>([]);
+  const [dailyData,   setDailyData]   = useState<DailyCount[]>([]);
+  const [evalData,    setEvalData]    = useState<SelfEvalStat[]>([]);
+  const [purposeData, setPurposeData] = useState<PurposeStat[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!active || loaded) return;
+    Promise.all([
+      fetchScoreDistribution(),
+      fetchDailyTestCounts(),
+      fetchSelfEvaluationStats(),
+      fetchPurposeStats(),
+    ])
+      .then(([scores, daily, evals, purposes]) => {
+        setScoreData(scores);
+        setDailyData(daily);
+        setEvalData(evals);
+        setPurposeData(purposes);
+        onFirstLoad();
+      })
+      .catch(() => setError('統計データの取得に失敗しました。必要なSQLファンクションが存在するか確認してください。'))
+      .finally(() => setLoading(false));
+  }, [active, loaded, onFirstLoad]);
+
+  if (loading) return <p className="text-stone-400 text-sm py-12 text-center">読み込み中...</p>;
+  if (error)   return <div className="p-4 border border-red-200 bg-red-50 text-red-700 text-sm">{error}</div>;
+
+  const totalTests  = scoreData.reduce((s, d) => s + Number(d.count), 0);
+  const totalEvals  = evalData.reduce((s, e) => s + Number(e.count), 0);
+  const accurateCnt = evalData.find(e => e.evaluation === 'だいたい正確')?.count ?? 0;
+  const maxScore    = Math.max(...scoreData.map(d => Number(d.count)), 1);
+  const maxDailyCnt = Math.max(...dailyData.map(d => Number(d.count)), 1);
+  const maxPurpAvg  = Math.max(...purposeData.map(p => Number(p.avg_estimate)), 1);
+  const BAR_MAX     = 160;
+
+  const hasAnyData = totalTests > 0 || dailyData.length > 0 || totalEvals > 0 || purposeData.length > 0;
+
+  return (
+    <div className="space-y-8">
+      {/* 概要カード */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard label="総テスト数"   value={totalTests.toLocaleString()} sub="全期間累計" />
+        <StatCard label="直近30日"    value={dailyData.reduce((s, d) => s + Number(d.count), 0).toLocaleString()} sub="テスト回数" />
+        <StatCard label="自己評価数"   value={totalEvals.toLocaleString()} sub="フィードバック合計" />
+        <StatCard
+          label="正確と評価"
+          value={totalEvals > 0 ? `${Math.round(Number(accurateCnt) / totalEvals * 100)}%` : '—'}
+          sub="「だいたい正確」の割合"
+        />
+      </div>
+
+      {!hasAnyData && (
+        <div className="border border-stone-200 bg-white p-8 text-center">
+          <p className="text-stone-500 text-sm">統計データがまだありません。</p>
+          <p className="text-stone-400 text-xs mt-1">テストの完了件数が増えると分析データが表示されます。</p>
+        </div>
+      )}
+
+      {/* スコア分布ヒストグラム */}
+      {scoreData.length > 0 && (
+        <div className="border border-stone-200 bg-white p-6">
+          <h3 className="font-bold text-stone-900 text-sm uppercase tracking-wider mb-1">スコア分布</h3>
+          <p className="text-xs text-stone-400 mb-5">ユーザーの推定語彙数の分布（1,000語刻み）</p>
+          <div className="space-y-2">
+            {scoreData.map(d => {
+              const cnt    = Number(d.count);
+              const barPx  = Math.round((cnt / maxScore) * BAR_MAX);
+              const label  = d.bucket_min >= 11000
+                ? '11,000語〜'
+                : `${d.bucket_min.toLocaleString()}〜${(d.bucket_min + 999).toLocaleString()}語`;
+              return (
+                <div key={d.bucket_min} className="flex items-center gap-3">
+                  <span className="text-xs text-stone-500 w-28 shrink-0 font-mono">{label}</span>
+                  <div className="flex-1 flex items-center gap-2">
+                    <div className="h-4 bg-stone-900 rounded-sm" style={{ width: barPx }} />
+                    <span className="text-xs font-mono text-stone-700">{cnt.toLocaleString()} 件</span>
+                  </div>
+                  <span className="text-xs text-stone-400 w-10 text-right">
+                    {totalTests > 0 ? `${Math.round(cnt / totalTests * 100)}%` : '—'}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 日別テスト数チャート */}
+      {dailyData.length > 0 && (
+        <div className="border border-stone-200 bg-white p-6">
+          <h3 className="font-bold text-stone-900 text-sm uppercase tracking-wider mb-1">日別テスト数（直近30日）</h3>
+          <p className="text-xs text-stone-400 mb-4">1日あたりのテスト実施件数推移</p>
+          <div className="flex items-end gap-0.5" style={{ height: 80 }}>
+            {dailyData.map(d => {
+              const cnt  = Number(d.count);
+              const barH = Math.max(2, Math.round((cnt / maxDailyCnt) * 72));
+              const date = new Date(d.test_date);
+              return (
+                <div
+                  key={d.test_date}
+                  className="flex-1 flex flex-col items-center justify-end h-full group relative"
+                  title={`${date.getMonth() + 1}/${date.getDate()}: ${cnt}件`}
+                >
+                  {/* ツールチップ */}
+                  <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-stone-800 text-white text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-10">
+                    {date.getMonth() + 1}/{date.getDate()}: {cnt}件
+                  </div>
+                  <div className="w-full bg-stone-900 rounded-t-sm transition-colors group-hover:bg-stone-600" style={{ height: barH }} />
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex justify-between text-[10px] text-stone-400 mt-1">
+            <span>{new Date(dailyData[0].test_date).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' })}</span>
+            <span>{new Date(dailyData[dailyData.length - 1].test_date).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' })}</span>
+          </div>
+        </div>
+      )}
+
+      {/* 自己評価内訳 */}
+      {evalData.length > 0 && (
+        <div className="border border-stone-200 bg-white p-6">
+          <h3 className="font-bold text-stone-900 text-sm uppercase tracking-wider mb-1">自己評価内訳</h3>
+          <p className="text-xs text-stone-400 mb-5">「結果は感覚と合っていますか？」への回答分布</p>
+          <div className="space-y-5">
+            {(['高すぎる', 'だいたい正確', '低すぎる'] as const).map(ev => {
+              const stat    = evalData.find(e => e.evaluation === ev);
+              const cnt     = stat ? Number(stat.count) : 0;
+              const avgVocab = stat ? Math.round(Number(stat.avg_estimate)) : null;
+              const pct     = totalEvals > 0 ? Math.round(cnt / totalEvals * 100) : 0;
+              const barPx   = Math.round((pct / 100) * BAR_MAX);
+              return (
+                <div key={ev}>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-stone-500 w-20 shrink-0">{ev}</span>
+                    <div className="flex-1 flex items-center gap-2">
+                      <div className="h-5 bg-stone-900 rounded-sm" style={{ width: barPx }} />
+                      <span className="text-xs font-mono text-stone-700">{cnt} 件（{pct}%）</span>
+                    </div>
+                  </div>
+                  {avgVocab !== null && cnt > 0 && (
+                    <p className="text-[11px] text-stone-400 ml-[5.5rem] mt-0.5">
+                      平均推定語彙: {avgVocab.toLocaleString()} 語
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-xs text-stone-400 mt-4 border-t border-stone-100 pt-3">
+            ※「だいたい正確」の割合が高いほど推定精度が良好です。50件以上集まると傾向が安定します。
+          </p>
+        </div>
+      )}
+
+      {/* 学習目的別平均語彙数 */}
+      {purposeData.length > 0 && (
+        <div className="border border-stone-200 bg-white p-6">
+          <h3 className="font-bold text-stone-900 text-sm uppercase tracking-wider mb-1">学習目的別 平均語彙数</h3>
+          <p className="text-xs text-stone-400 mb-5">アンケートで学習目的を回答したユーザーの平均推定語彙数</p>
+          <div className="space-y-4">
+            {purposeData.map(p => {
+              const avg  = Math.round(Number(p.avg_estimate));
+              const med  = Math.round(Number(p.median_estimate));
+              const barPx = Math.round((avg / maxPurpAvg) * BAR_MAX);
+              return (
+                <div key={p.purpose}>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-stone-500 w-24 shrink-0">{p.purpose}</span>
+                    <div className="flex-1 flex items-center gap-2">
+                      <div className="h-5 bg-stone-900 rounded-sm" style={{ width: barPx }} />
+                      <span className="text-xs font-mono text-stone-700">{avg.toLocaleString()} 語</span>
+                    </div>
+                    <span className="text-xs text-stone-400 w-14 text-right">{Number(p.count)} 人</span>
+                  </div>
+                  <p className="text-[11px] text-stone-400 ml-[7.5rem] mt-0.5">
+                    中央値 {med.toLocaleString()} 語
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── メインコンポーネント ──────────────────────────────────────────────────────
-type AdminTab = 'words' | 'demographics' | 'realscores';
+type AdminTab = 'words' | 'demographics' | 'realscores' | 'analysis';
 
 const PAGE_SIZE = 50;
 
@@ -442,8 +638,9 @@ export function AdminView() {
   const [page, setPage]                       = useState(1);
 
   // タブ別データキャッシュ（再マウント時の再フェッチを防ぐ）
-  const [demoLoaded,    setDemoLoaded]    = useState(false);
-  const [rsLoaded,      setRsLoaded]      = useState(false);
+  const [demoLoaded,     setDemoLoaded]     = useState(false);
+  const [rsLoaded,       setRsLoaded]       = useState(false);
+  const [analysisLoaded, setAnalysisLoaded] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true); setError(null);
@@ -568,6 +765,7 @@ export function AdminView() {
             ['words',       '単語管理'],
             ['demographics','年代・性別分析'],
             ['realscores',  'スコア相関'],
+            ['analysis',    '統計分析'],
           ] as [AdminTab, string][]).map(([tab, label]) => (
             <button
               key={tab}
@@ -591,6 +789,11 @@ export function AdminView() {
         {/* スコア相関タブ（常時マウント） */}
         <div className={activeTab === 'realscores' ? '' : 'hidden'}>
           <RealScoreView active={activeTab === 'realscores'} onFirstLoad={() => setRsLoaded(true)} loaded={rsLoaded} />
+        </div>
+
+        {/* 統計分析タブ（常時マウント） */}
+        <div className={activeTab === 'analysis' ? '' : 'hidden'}>
+          <AnalysisView active={activeTab === 'analysis'} onFirstLoad={() => setAnalysisLoaded(true)} loaded={analysisLoaded} />
         </div>
 
         {/* 単語管理タブ */}
