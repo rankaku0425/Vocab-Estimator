@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react';
 import { WelcomeView } from './components/WelcomeView';
+import { SurveyView } from './components/SurveyView';
 import { TestView } from './components/TestView';
 import { StepResultView } from './components/StepResultView';
 import { ResultView } from './components/ResultView';
 import { AdminView } from './components/AdminView';
-import { ViewState, Word, VocabResult, TestHistoryEntry } from './types';
+import { ViewState, Word, VocabResult, TestHistoryEntry, Demographics } from './types';
 import { estimateWithCI, estimateTheta, selectNextWords } from './vocabEngine';
 import { fetchWords, logResponses, submitScore } from './supabase';
 
-const MAX_STEPS = 5;
+const MAX_STEPS   = 5;
 const SESSION_KEY = 'vocab_test_session_v1';
 const HISTORY_KEY = 'vocab_test_history_v1';
+const DEMO_KEY    = 'vocab_demographics_v1';
 
 // ── セッション永続化 ──────────────────────────────────────────────────────────
 type SavedSession = {
@@ -62,9 +64,14 @@ export default function App() {
   const [dummyWords, setDummyWords]       = useState<Word[]>([]);
   const [loadError, setLoadError]         = useState<string | null>(null);
   const [savedSession, setSavedSession]   = useState<SavedSession | null>(null);
+  const [demographics, setDemographics]   = useState<Demographics | null>(null);
 
   useEffect(() => {
     setSavedSession(loadSession());
+    try {
+      const raw = localStorage.getItem(DEMO_KEY);
+      if (raw) setDemographics(JSON.parse(raw) as Demographics);
+    } catch { /* no-op */ }
     fetchWords()
       .then(({ wordList, dummyWords }) => {
         setWordList(wordList);
@@ -74,6 +81,12 @@ export default function App() {
   }, []);
 
   const handleStart = () => {
+    setView('survey');
+  };
+
+  const handleSurveyComplete = (demo: Demographics) => {
+    try { localStorage.setItem(DEMO_KEY, JSON.stringify(demo)); } catch { /* no-op */ }
+    setDemographics(demo);
     clearSession();
     setSavedSession(null);
     const nextWords = selectNextWords(wordList, dummyWords, [], new Set());
@@ -130,7 +143,7 @@ export default function App() {
     if (step >= MAX_STEPS) {
       clearSession();
       if (currentResult) {
-        submitScore(currentResult);
+        submitScore(currentResult, demographics ?? undefined);
         const entry: TestHistoryEntry = {
           estimate: currentResult.estimate,
           date: new Date().toISOString(),
@@ -185,6 +198,12 @@ export default function App() {
           onViewHistory={handleViewHistory}
         />
       )}
+      {view === 'survey' && (
+        <SurveyView
+          saved={demographics}
+          onComplete={handleSurveyComplete}
+        />
+      )}
       {view === 'test' && (
         <TestView
           words={currentStepWords}
@@ -209,6 +228,7 @@ export default function App() {
           allShownWords={allShownWords}
           selectedIds={selectedIds}
           onRetry={handleRetry}
+          demographics={demographics ?? undefined}
         />
       )}
       {view === 'historyResult' && historyResult && (

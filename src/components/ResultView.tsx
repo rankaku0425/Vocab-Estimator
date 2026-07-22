@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Word, VocabResult, TestHistoryEntry } from '../types';
-import { fetchRankingStats, RankingStats } from '../supabase';
+import { Word, VocabResult, TestHistoryEntry, Demographics } from '../types';
+import { fetchRankingStats, RankingStats, fetchDemoRankingStats, DemoRankingStats } from '../supabase';
 
 // ── CEFR / 試験換算テーブル ──────────────────────────────────────────────────
 const CEFR_TABLE = [
@@ -177,50 +177,129 @@ function CategoryBreakdown({
   );
 }
 
-// ── 弱点レベルのハイライト ────────────────────────────────────────────────────
-function WeaknessHighlight({ breakdown }: { breakdown: { level: number; probability: number }[] }) {
-  const weakLevels   = breakdown.filter(b => b.probability < 0.4).sort((a, b) => a.probability - b.probability);
-  const strongLevels = breakdown.filter(b => b.probability > 0.7).sort((a, b) => b.probability - a.probability);
+// ── 5段階習熟度ラベル ────────────────────────────────────────────────────────
+function proficiencyInfo(pct: number): { label: string; cls: string } {
+  if (pct >= 80) return { label: '習得済み', cls: 'bg-stone-900 text-white' };
+  if (pct >= 60) return { label: 'ほぼ習得', cls: 'bg-stone-100 text-stone-600' };
+  if (pct >= 40) return { label: '定着途上', cls: 'bg-yellow-100 text-yellow-700' };
+  if (pct >= 20) return { label: '学習中',   cls: 'bg-orange-100 text-orange-700' };
+  return                { label: '未習得',   cls: 'bg-red-100 text-red-700' };
+}
 
-  if (weakLevels.length === 0 && strongLevels.length === 0) return null;
+// ── 弱点レベルのハイライト ────────────────────────────────────────────────────
+function WeaknessHighlight({
+  breakdown,
+  allShownWords,
+  selectedIds,
+}: {
+  breakdown: { level: number; probability: number }[];
+  allShownWords: Word[];
+  selectedIds: Set<string>;
+}) {
+  const [prevBreakdown, setPrevBreakdown] = useState<{ level: number; probability: number }[] | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(HISTORY_KEY);
+      if (!raw) return;
+      const hist = JSON.parse(raw) as TestHistoryEntry[];
+      // 最新エントリが今回のテスト、その1つ前を「前回」とする
+      if (hist.length >= 2) {
+        const prev = hist[hist.length - 2];
+        if (prev.result?.levelBreakdown) setPrevBreakdown(prev.result.levelBreakdown);
+      }
+    } catch { /* no-op */ }
+  }, []);
+
+  // 最優先学習レベル: 出題実単語があるレベルの中で最も既知率が低いもの
+  const levelsWithWords = breakdown.filter(b =>
+    allShownWords.some(w => !w.isDummy && w.level === b.level)
+  );
+  const priorityLevel = [...levelsWithWords].sort((a, b) => a.probability - b.probability)[0] ?? null;
+
+  // カテゴリ推奨: 80%未満の中で平均が最も低いカテゴリ
+  const catAvg = CATEGORIES.map(cat => {
+    const probs = (cat.levels as readonly number[]).map(lv => breakdown.find(b => b.level === lv)?.probability ?? 0);
+    const avg = probs.reduce((s, p) => s + p, 0) / probs.length;
+    return { cat, avg };
+  });
+  const recommended = catAvg.filter(c => c.avg < 0.8).sort((a, b) => a.avg - b.avg)[0] ?? null;
 
   return (
     <div className="mb-10 border border-stone-200 bg-white p-6">
-      <h4 className="font-bold text-stone-900 mb-4 text-sm uppercase tracking-wider">
+      <h4 className="font-bold text-stone-900 mb-5 text-sm uppercase tracking-wider">
         学習フィードバック
       </h4>
-      <div className="space-y-3">
-        {weakLevels.length > 0 && (
-          <div>
-            <p className="text-xs text-stone-400 uppercase tracking-wider mb-2">要強化</p>
-            {weakLevels.slice(0, 3).map(({ level, probability }) => (
-              <div key={level} className="flex items-center gap-3 mb-1.5">
-                <span className="text-xs font-mono bg-stone-100 text-stone-600 px-2 py-0.5 rounded">
-                  Lv {level}
-                </span>
-                <span className="text-sm text-stone-600">
-                  既知率 {Math.round(probability * 100)}% — このレベルの単語を重点的に学習しましょう。
-                </span>
+
+      {/* 最優先学習レベル */}
+      {priorityLevel && Math.round(priorityLevel.probability * 100) < 80 && (
+        <div className="bg-stone-50 border border-stone-200 p-4 mb-5">
+          <p className="text-xs text-stone-400 uppercase tracking-wider mb-1">最優先学習レベル</p>
+          <p className="font-bold text-stone-900 mb-2">
+            Lv {priorityLevel.level} — 既知率 {Math.round(priorityLevel.probability * 100)}%
+          </p>
+          {(() => {
+            const levelWords = allShownWords.filter(w => !w.isDummy && w.level === priorityLevel.level);
+            const unknownWords = levelWords.filter(w => !selectedIds.has(w.id));
+            if (unknownWords.length === 0) return null;
+            return (
+              <div>
+                <p className="text-xs text-stone-500 mb-1.5">知らなかった単語:</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {unknownWords.slice(0, 6).map(w => (
+                    <span key={w.id} className="text-xs border border-stone-300 text-stone-600 px-2 py-0.5">
+                      {w.word}
+                    </span>
+                  ))}
+                </div>
               </div>
-            ))}
-          </div>
-        )}
-        {strongLevels.length > 0 && (
-          <div className={weakLevels.length > 0 ? 'pt-3 border-t border-stone-100' : ''}>
-            <p className="text-xs text-stone-400 uppercase tracking-wider mb-2">強み</p>
-            {strongLevels.slice(0, 3).map(({ level, probability }) => (
-              <div key={level} className="flex items-center gap-3 mb-1.5">
-                <span className="text-xs font-mono bg-stone-900 text-white px-2 py-0.5 rounded">
-                  Lv {level}
-                </span>
-                <span className="text-sm text-stone-600">
-                  既知率 {Math.round(probability * 100)}% — このレベルは得意です。
-                </span>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* レベル別習熟度一覧 */}
+      <p className="text-xs text-stone-400 uppercase tracking-wider mb-2">レベル別習熟度</p>
+      <div className="space-y-1.5 mb-5">
+        {breakdown.map(({ level, probability }) => {
+          const pct = Math.round(probability * 100);
+          const { label, cls } = proficiencyInfo(pct);
+          const prevProb = prevBreakdown?.find(b => b.level === level)?.probability ?? null;
+          const delta = prevProb !== null ? pct - Math.round(prevProb * 100) : null;
+          return (
+            <div key={level} className="flex items-center gap-2">
+              <span className="text-xs font-mono text-stone-400 w-7 shrink-0">Lv{level}</span>
+              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded whitespace-nowrap shrink-0 ${cls}`}>
+                {label}
+              </span>
+              <div className="flex-1 h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                <div className="h-full bg-stone-700 rounded-full" style={{ width: `${pct}%` }} />
               </div>
-            ))}
-          </div>
-        )}
+              <span className="text-[10px] font-mono text-stone-500 w-8 text-right shrink-0">{pct}%</span>
+              <span className={`text-[10px] font-mono w-10 text-right shrink-0 ${
+                delta === null ? 'invisible' :
+                delta > 0 ? 'text-stone-700' :
+                delta < 0 ? 'text-stone-400' : 'text-stone-300'
+              }`}>
+                {delta === null ? '' : delta > 0 ? `↑+${delta}%` : delta < 0 ? `↓${delta}%` : '—'}
+              </span>
+            </div>
+          );
+        })}
       </div>
+
+      {/* カテゴリ推奨 */}
+      {recommended && (
+        <div className="border-t border-stone-100 pt-4">
+          <p className="text-xs text-stone-400 uppercase tracking-wider mb-1">次のステップ</p>
+          <p className="text-sm text-stone-700">
+            <span className="font-medium">
+              「{recommended.cat.label}（Lv {(recommended.cat.levels as readonly number[]).join('–')}）」
+            </span>
+            の強化が最も効果的です。
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -326,16 +405,42 @@ function HistoryChart() {
 }
 
 // ── ランキングセクション ──────────────────────────────────────────────────────
-function RankingSection({ estimate }: { estimate: number }) {
-  const [ranking, setRanking]   = useState<RankingStats | null>(null);
-  const [loading, setLoading]   = useState(true);
+function RankingBar({ percentile, label }: { percentile: number; label: string }) {
+  const topPct = 100 - percentile;
+  return (
+    <div className="mb-1">
+      <div className="flex items-baseline gap-2 mb-2">
+        <span className="text-3xl font-serif font-bold text-stone-900">上位 {topPct.toFixed(1)}%</span>
+        <span className="text-xs text-stone-400">{label}</span>
+      </div>
+      <div className="relative w-full h-2 bg-stone-100 rounded-full overflow-hidden">
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${topPct}%` }}
+          transition={{ duration: 1.0, ease: 'easeOut' }}
+          className="absolute right-0 h-full bg-stone-900 rounded-full"
+        />
+      </div>
+      <div className="flex justify-between text-xs text-stone-400 font-mono mt-0.5">
+        <span>下位</span><span>上位</span>
+      </div>
+    </div>
+  );
+}
+
+function RankingSection({ estimate, demographics }: { estimate: number; demographics?: Demographics }) {
+  const [overall,    setOverall]    = useState<RankingStats     | null>(null);
+  const [demoStats,  setDemoStats]  = useState<DemoRankingStats | null>(null);
+  const [loading,    setLoading]    = useState(true);
 
   useEffect(() => {
-    fetchRankingStats(estimate)
-      .then(setRanking)
-      .catch(() => { /* ランキング取得失敗は静かに無視 */ })
-      .finally(() => setLoading(false));
-  }, [estimate]);
+    const p1 = fetchRankingStats(estimate).then(setOverall).catch(() => {});
+    const p2 = demographics
+      ? fetchDemoRankingStats(estimate, demographics.ageGroup, demographics.gender)
+          .then(setDemoStats).catch(() => {})
+      : Promise.resolve();
+    Promise.all([p1, p2]).finally(() => setLoading(false));
+  }, [estimate, demographics]);
 
   if (loading) {
     return (
@@ -346,7 +451,7 @@ function RankingSection({ estimate }: { estimate: number }) {
     );
   }
 
-  if (!ranking || ranking.total === 0) {
+  if (!overall || overall.total === 0) {
     return (
       <div className="border border-stone-200 bg-white p-6 mb-10">
         <h4 className="font-bold text-stone-900 mb-3 text-sm uppercase tracking-wider">ランキング</h4>
@@ -355,48 +460,51 @@ function RankingSection({ estimate }: { estimate: number }) {
     );
   }
 
-  const isAboveMedian = estimate >= ranking.median;
-
   return (
     <div className="border border-stone-200 bg-white p-6 mb-10">
-      <h4 className="font-bold text-stone-900 mb-4 text-sm uppercase tracking-wider">ランキング</h4>
+      <h4 className="font-bold text-stone-900 mb-5 text-sm uppercase tracking-wider">ランキング</h4>
 
-      <div className="flex items-baseline gap-2 mb-4">
-        <span className="text-4xl font-serif font-bold text-stone-900">
-          上位 {(100 - ranking.percentile).toFixed(1)}%
-        </span>
+      {/* 全体ランキング */}
+      <div className="mb-5">
+        <RankingBar percentile={overall.percentile} label="全体" />
+        <div className="grid grid-cols-2 gap-4 text-sm mt-3">
+          <div>
+            <p className="text-stone-400 text-xs uppercase tracking-wider mb-0.5">全体中央値</p>
+            <p className="font-medium text-stone-900">{Math.round(overall.median).toLocaleString()} 語</p>
+          </div>
+          <div>
+            <p className="text-stone-400 text-xs uppercase tracking-wider mb-0.5">参加者数</p>
+            <p className="font-medium text-stone-900">{overall.total.toLocaleString()} 人</p>
+          </div>
+        </div>
       </div>
 
-      <div className="mb-4">
-        <div className="relative w-full h-2 bg-stone-100 rounded-full overflow-hidden">
-          <motion.div
-            initial={{ width: 0 }}
-            animate={{ width: `${100 - ranking.percentile}%` }}
-            transition={{ duration: 1.0, ease: 'easeOut' }}
-            className="absolute right-0 h-full bg-stone-900 rounded-full"
+      {/* 同年代・同性別ランキング */}
+      {demographics && demoStats && demoStats.total >= 3 && (
+        <div className="border-t border-stone-100 pt-5">
+          <RankingBar
+            percentile={demoStats.percentile}
+            label={`${demographics.ageGroup} ${demographics.gender}`}
           />
+          <div className="grid grid-cols-2 gap-4 text-sm mt-3">
+            <div>
+              <p className="text-stone-400 text-xs uppercase tracking-wider mb-0.5">同グループ中央値</p>
+              <p className="font-medium text-stone-900">{Math.round(demoStats.median).toLocaleString()} 語</p>
+            </div>
+            <div>
+              <p className="text-stone-400 text-xs uppercase tracking-wider mb-0.5">同グループ参加者</p>
+              <p className="font-medium text-stone-900">{demoStats.total.toLocaleString()} 人</p>
+            </div>
+          </div>
         </div>
-        <div className="flex justify-between text-xs text-stone-400 font-mono mt-1">
-          <span>下位</span>
-          <span>上位</span>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4 text-sm">
-        <div>
-          <p className="text-stone-500 text-xs uppercase tracking-wider mb-1">参加者全体の中央値</p>
-          <p className="font-medium text-stone-900">
-            {Math.round(ranking.median).toLocaleString()} 語
-            <span className={`ml-2 text-xs ${isAboveMedian ? 'text-stone-600' : 'text-stone-400'}`}>
-              ({isAboveMedian ? '中央値以上' : '中央値以下'})
-            </span>
+      )}
+      {demographics && (!demoStats || demoStats.total < 3) && (
+        <div className="border-t border-stone-100 pt-4">
+          <p className="text-xs text-stone-400 italic">
+            {demographics.ageGroup}・{demographics.gender} のデータがまだ少ないため同グループ比較は表示されません。
           </p>
         </div>
-        <div>
-          <p className="text-stone-500 text-xs uppercase tracking-wider mb-1">総参加者数</p>
-          <p className="font-medium text-stone-900">{ranking.total.toLocaleString()} 人</p>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -632,9 +740,10 @@ interface Props {
   selectedIds: Set<string>;
   onRetry: () => void;
   isHistory?: boolean;
+  demographics?: Demographics;
 }
 
-export function ResultView({ result, allShownWords, selectedIds, onRetry, isHistory = false }: Props) {
+export function ResultView({ result, allShownWords, selectedIds, onRetry, isHistory = false, demographics }: Props) {
   const { estimate, lower, upper, levelBreakdown } = result;
   const cefrRow = getCefrRow(estimate);
 
@@ -690,10 +799,10 @@ export function ResultView({ result, allShownWords, selectedIds, onRetry, isHist
         </div>
 
         {/* ── ランキング ── */}
-        <RankingSection estimate={estimate} />
+        <RankingSection estimate={estimate} demographics={demographics} />
 
         {/* ── 学習フィードバック（機能12） ── */}
-        <WeaknessHighlight breakdown={levelBreakdown} />
+        <WeaknessHighlight breakdown={levelBreakdown} allShownWords={allShownWords} selectedIds={selectedIds} />
 
         {/* ── カテゴリ別診断（機能11） ── */}
         <CategoryBreakdown breakdown={levelBreakdown} allShownWords={allShownWords} selectedIds={selectedIds} />

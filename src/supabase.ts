@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { Word, VocabResult } from './types';
+import { Word, VocabResult, Demographics } from './types';
 
 const supabaseUrl    = import.meta.env.VITE_SUPABASE_URL    as string;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
@@ -48,11 +48,13 @@ export async function logResponses(
 }
 
 // ── ランキング：スコア送信 ────────────────────────────────────────────────────
-export async function submitScore(result: VocabResult): Promise<void> {
+export async function submitScore(result: VocabResult, demographics?: Demographics): Promise<void> {
   const { error } = await supabase.from('scores').insert({
-    estimate: result.estimate,
-    lower:    result.lower,
-    upper:    result.upper,
+    estimate:  result.estimate,
+    lower:     result.lower,
+    upper:     result.upper,
+    age_group: demographics?.ageGroup ?? null,
+    gender:    demographics?.gender   ?? null,
   });
   if (error) console.error('スコア送信に失敗しました:', error);
 }
@@ -69,6 +71,45 @@ export async function fetchRankingStats(estimate: number): Promise<RankingStats>
     .rpc('get_ranking_stats', { p_estimate: estimate });
   if (error) throw error;
   return data as RankingStats;
+}
+
+// ── ランキング：同年代・同性別統計 ───────────────────────────────────────────
+export interface DemoRankingStats {
+  total:      number;
+  percentile: number;
+  median:     number;
+}
+
+export async function fetchDemoRankingStats(
+  estimate:  number,
+  ageGroup:  string,
+  gender:    string,
+): Promise<DemoRankingStats> {
+  const { data, error } = await supabase
+    .rpc('get_demo_ranking_stats', {
+      p_estimate:  estimate,
+      p_age_group: ageGroup,
+      p_gender:    gender,
+    });
+  if (error) throw error;
+  return data as DemoRankingStats;
+}
+
+// ── 管理：年代・性別別統計 ────────────────────────────────────────────────────
+export interface DemographicStat {
+  age_group:       string;
+  gender:          string;
+  count:           number;
+  avg_estimate:    number;
+  median_estimate: number;
+  min_estimate:    number;
+  max_estimate:    number;
+}
+
+export async function fetchDemographicStats(): Promise<DemographicStat[]> {
+  const { data, error } = await supabase.rpc('get_demographic_stats');
+  if (error) throw error;
+  return (data as DemographicStat[]) ?? [];
 }
 
 // ── 管理：単語統計取得（word_stats ビュー） ───────────────────────────────────

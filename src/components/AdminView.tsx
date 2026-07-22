@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   fetchWordStats, runCalibration, updateWordBParam, addWord, deleteWord, WordStat,
+  fetchDemographicStats, DemographicStat,
 } from '../supabase';
 
 type LevelFilter = 'all' | number;
@@ -157,8 +158,167 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   return <span className="ml-1">{dir === 'asc' ? '↑' : '↓'}</span>;
 }
 
+// ── 年代・性別分析ビュー ──────────────────────────────────────────────────────
+const AGE_GROUPS = ['10代', '20代', '30代', '40代', '50代', '60代以上'];
+const GENDERS    = ['男性', '女性', 'その他'];
+
+function DemographicView() {
+  const [stats,   setStats]   = useState<DemographicStat[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchDemographicStats()
+      .then(setStats)
+      .catch(() => setError('年代・性別統計の取得に失敗しました。get_demographic_stats RPC が存在するか確認してください。'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <p className="text-stone-400 text-sm py-12 text-center">読み込み中...</p>;
+  if (error)   return <div className="p-4 border border-red-200 bg-red-50 text-red-700 text-sm">{error}</div>;
+  if (stats.length === 0) {
+    return (
+      <div className="border border-stone-200 bg-white p-8 text-center">
+        <p className="text-stone-500 text-sm">年代・性別付きのスコアデータがまだありません。</p>
+        <p className="text-stone-400 text-xs mt-1">アンケートに回答したユーザーがテストを完了すると集計されます。</p>
+      </div>
+    );
+  }
+
+  // 年代別集計
+  const byAge = AGE_GROUPS.map(ag => {
+    const rows = stats.filter(s => s.age_group === ag);
+    const total = rows.reduce((s, r) => s + r.count, 0);
+    const avgEst = total > 0
+      ? Math.round(rows.reduce((s, r) => s + r.avg_estimate * r.count, 0) / total)
+      : null;
+    return { label: ag, total, avgEst };
+  }).filter(r => r.total > 0);
+
+  // 性別別集計
+  const byGender = GENDERS.map(g => {
+    const rows = stats.filter(s => s.gender === g);
+    const total = rows.reduce((s, r) => s + r.count, 0);
+    const avgEst = total > 0
+      ? Math.round(rows.reduce((s, r) => s + r.avg_estimate * r.count, 0) / total)
+      : null;
+    return { label: g, total, avgEst };
+  }).filter(r => r.total > 0);
+
+  const maxAvg = Math.max(
+    ...byAge.map(r => r.avgEst ?? 0),
+    ...byGender.map(r => r.avgEst ?? 0),
+    1
+  );
+  const BAR_MAX = 120;
+
+  return (
+    <div className="space-y-8">
+      {/* 年代別 */}
+      <div className="border border-stone-200 bg-white p-6">
+        <h3 className="font-bold text-stone-900 text-sm uppercase tracking-wider mb-5">年代別 平均語彙数</h3>
+        <div className="space-y-3">
+          {byAge.map(r => {
+            const barPx = r.avgEst ? Math.round((r.avgEst / maxAvg) * BAR_MAX) : 0;
+            return (
+              <div key={r.label} className="flex items-center gap-3">
+                <span className="text-xs text-stone-500 w-14 shrink-0">{r.label}</span>
+                <div className="flex-1 flex items-center gap-2">
+                  <div className="h-5 bg-stone-900 rounded-sm" style={{ width: barPx }} />
+                  <span className="text-xs font-mono text-stone-700">
+                    {r.avgEst?.toLocaleString() ?? '—'} 語
+                  </span>
+                </div>
+                <span className="text-xs text-stone-400 w-12 text-right">{r.total} 人</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 性別別 */}
+      <div className="border border-stone-200 bg-white p-6">
+        <h3 className="font-bold text-stone-900 text-sm uppercase tracking-wider mb-5">性別 平均語彙数</h3>
+        <div className="space-y-3">
+          {byGender.map(r => {
+            const barPx = r.avgEst ? Math.round((r.avgEst / maxAvg) * BAR_MAX) : 0;
+            return (
+              <div key={r.label} className="flex items-center gap-3">
+                <span className="text-xs text-stone-500 w-14 shrink-0">{r.label}</span>
+                <div className="flex-1 flex items-center gap-2">
+                  <div className="h-5 bg-stone-700 rounded-sm" style={{ width: barPx }} />
+                  <span className="text-xs font-mono text-stone-700">
+                    {r.avgEst?.toLocaleString() ?? '—'} 語
+                  </span>
+                </div>
+                <span className="text-xs text-stone-400 w-12 text-right">{r.total} 人</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* クロス集計テーブル */}
+      <div className="border border-stone-200 bg-white overflow-x-auto">
+        <div className="px-6 py-4 border-b border-stone-100">
+          <h3 className="font-bold text-stone-900 text-sm uppercase tracking-wider">年代 × 性別 クロス集計</h3>
+        </div>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-stone-100 bg-stone-50">
+              <th className="px-4 py-2 text-left text-xs text-stone-500 font-medium">年代</th>
+              {GENDERS.map(g => (
+                <th key={g} className="px-4 py-2 text-center text-xs text-stone-500 font-medium" colSpan={2}>{g}</th>
+              ))}
+              <th className="px-4 py-2 text-center text-xs text-stone-500 font-medium">合計</th>
+            </tr>
+            <tr className="border-b border-stone-200">
+              <th className="px-4 py-1" />
+              {GENDERS.map(g => (
+                <>
+                  <th key={`${g}-avg`} className="px-3 py-1 text-[10px] text-stone-400 font-normal text-center">平均</th>
+                  <th key={`${g}-n`}   className="px-3 py-1 text-[10px] text-stone-400 font-normal text-center">人数</th>
+                </>
+              ))}
+              <th className="px-4 py-1" />
+            </tr>
+          </thead>
+          <tbody>
+            {AGE_GROUPS.map((ag, i) => {
+              const rowTotal = stats.filter(s => s.age_group === ag).reduce((s, r) => s + r.count, 0);
+              if (rowTotal === 0) return null;
+              return (
+                <tr key={ag} className={`border-t border-stone-100 ${i % 2 === 0 ? '' : 'bg-stone-50/50'}`}>
+                  <td className="px-4 py-2 text-xs font-medium text-stone-700">{ag}</td>
+                  {GENDERS.map(g => {
+                    const cell = stats.find(s => s.age_group === ag && s.gender === g);
+                    return (
+                      <>
+                        <td key={`${ag}-${g}-avg`} className="px-3 py-2 text-center text-xs font-mono text-stone-600">
+                          {cell ? Math.round(cell.avg_estimate).toLocaleString() : '—'}
+                        </td>
+                        <td key={`${ag}-${g}-n`} className="px-3 py-2 text-center text-xs text-stone-400">
+                          {cell ? cell.count : '—'}
+                        </td>
+                      </>
+                    );
+                  })}
+                  <td className="px-4 py-2 text-center text-xs text-stone-500">{rowTotal}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ── メインコンポーネント ──────────────────────────────────────────────────────
+type AdminTab = 'words' | 'demographics';
+
 export function AdminView() {
+  const [activeTab, setActiveTab]   = useState<AdminTab>('words');
   const [stats, setStats]           = useState<WordStat[]>([]);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState<string | null>(null);
@@ -241,28 +401,53 @@ export function AdminView() {
       <div className="max-w-7xl mx-auto">
 
         {/* ヘッダー */}
-        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-serif font-bold text-stone-900">管理画面</h1>
-            <p className="text-stone-500 text-sm mt-1">単語統計・難易度キャリブレーション</p>
+            <p className="text-stone-500 text-sm mt-1">単語統計・難易度キャリブレーション・年代別分析</p>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <button onClick={() => exportCSV(filtered)}
-              className="border border-stone-300 hover:bg-stone-100 text-stone-700 text-sm font-medium py-2 px-4 transition-colors">
-              CSV 出力
-            </button>
-            <button onClick={load}
-              className="border border-stone-300 hover:bg-stone-100 text-stone-700 text-sm font-medium py-2 px-4 transition-colors">
-              再読み込み
-            </button>
-            <button
-              onClick={handleCalibrate}
-              disabled={calibrating || readyCount === 0}
-              className="bg-stone-900 hover:bg-stone-800 disabled:opacity-40 text-white text-sm font-medium py-2 px-5 transition-colors">
-              {calibrating ? '実行中...' : 'キャリブレーション実行'}
-            </button>
-          </div>
+          {activeTab === 'words' && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <button onClick={() => exportCSV(filtered)}
+                className="border border-stone-300 hover:bg-stone-100 text-stone-700 text-sm font-medium py-2 px-4 transition-colors">
+                CSV 出力
+              </button>
+              <button onClick={load}
+                className="border border-stone-300 hover:bg-stone-100 text-stone-700 text-sm font-medium py-2 px-4 transition-colors">
+                再読み込み
+              </button>
+              <button
+                onClick={handleCalibrate}
+                disabled={calibrating || readyCount === 0}
+                className="bg-stone-900 hover:bg-stone-800 disabled:opacity-40 text-white text-sm font-medium py-2 px-5 transition-colors">
+                {calibrating ? '実行中...' : 'キャリブレーション実行'}
+              </button>
+            </div>
+          )}
         </div>
+
+        {/* タブ */}
+        <div className="flex gap-0 mb-6 border-b border-stone-200">
+          {(['words', 'demographics'] as AdminTab[]).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                activeTab === tab
+                  ? 'border-stone-900 text-stone-900'
+                  : 'border-transparent text-stone-400 hover:text-stone-700'
+              }`}
+            >
+              {tab === 'words' ? '単語管理' : '年代・性別分析'}
+            </button>
+          ))}
+        </div>
+
+        {/* 年代・性別分析タブ */}
+        {activeTab === 'demographics' && <DemographicView />}
+
+        {/* 単語管理タブ */}
+        {activeTab === 'words' && <>
 
         {/* 統計カード */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -428,6 +613,8 @@ export function AdminView() {
           管理画面へのアクセス: URL の末尾に <code className="bg-stone-100 px-1">#admin</code> を追加。
           b_param セルをクリックで直接編集できます。
         </p>
+
+        </> /* end words tab */}
       </div>
     </div>
   );
