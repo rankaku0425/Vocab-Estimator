@@ -678,26 +678,97 @@ function HistoryChart() {
   );
 }
 
-// ── ランキングセクション ──────────────────────────────────────────────────────
-function RankingBar({ percentile, label }: { percentile: number; label: string }) {
-  const topPct = 100 - percentile;
+// ── ランキング分布グラフ ──────────────────────────────────────────────────────
+const RANK_BUCKETS   = 18;
+const RANK_MAX_VOCAB = 12000;
+
+function RankingDistributionChart({
+  estimate,
+  median,
+  percentile,
+  label,
+}: {
+  estimate:   number;
+  median:     number;
+  percentile: number;
+  label:      string;
+}) {
+  const bucketSize = RANK_MAX_VOCAB / RANK_BUCKETS;
+  const sd         = 2200; // 正規分布の近似標準偏差
+  const pdf        = (x: number) => Math.exp(-0.5 * ((x - median) / sd) ** 2);
+
+  const buckets = Array.from({ length: RANK_BUCKETS }, (_, i) => {
+    const start = i * bucketSize;
+    return {
+      start,
+      height: pdf(start + bucketSize / 2),
+      isUser: estimate >= start && estimate < start + bucketSize,
+    };
+  });
+  if (estimate >= RANK_MAX_VOCAB) buckets[RANK_BUCKETS - 1].isUser = true;
+
+  const maxH        = Math.max(...buckets.map(b => b.height));
+  const MAX_BAR_PX  = 72;
+  const medianPct   = Math.min((median / RANK_MAX_VOCAB) * 100, 99);
+
+  const topPct      = 100 - percentile;
   const topPctLabel = topPct < 1 ? '上位 1% 以内' : `上位 ${topPct.toFixed(1)}%`;
+
   return (
     <div className="mb-1">
-      <div className="flex items-baseline gap-2 mb-2">
+      <div className="flex items-baseline gap-2 mb-4">
         <span className="text-3xl font-serif font-bold text-stone-900">{topPctLabel}</span>
         <span className="text-xs text-stone-400">{label}</span>
       </div>
-      <div className="relative w-full h-2 bg-stone-100 rounded-full overflow-hidden">
-        <motion.div
-          initial={{ width: 0 }}
-          animate={{ width: `${topPct}%` }}
-          transition={{ duration: 1.0, ease: 'easeOut' }}
-          className="absolute right-0 h-full bg-stone-900 rounded-full"
+
+      {/* 分布棒グラフ（正規分布近似） */}
+      <div className="relative" style={{ height: MAX_BAR_PX }}>
+        <div className="flex items-end gap-px h-full">
+          {buckets.map((b, i) => {
+            const barH = Math.max(2, Math.round((b.height / maxH) * MAX_BAR_PX));
+            return (
+              <motion.div
+                key={i}
+                initial={{ height: 0 }}
+                animate={{ height: barH }}
+                transition={{ duration: 0.6, delay: i * 0.03, ease: 'easeOut' }}
+                className={`flex-1 ${b.isUser ? 'bg-stone-900' : 'bg-stone-200'}`}
+              />
+            );
+          })}
+        </div>
+
+        {/* 中央値の赤縦線 */}
+        <div
+          className="absolute top-0 bottom-0 w-px bg-red-400 pointer-events-none"
+          style={{ left: `${medianPct}%` }}
         />
       </div>
-      <div className="flex justify-between text-xs text-stone-400 font-mono mt-0.5">
-        <span>下位</span><span>上位</span>
+
+      {/* 軸ラベル */}
+      <div className="relative mt-1">
+        <div className="flex justify-between text-[10px] text-stone-400 font-mono">
+          <span>0</span>
+          <span>12,000+</span>
+        </div>
+        <div
+          className="absolute top-0 text-[10px] text-red-400 -translate-x-1/2 whitespace-nowrap"
+          style={{ left: `${medianPct}%` }}
+        >
+          中央値
+        </div>
+      </div>
+
+      {/* 凡例 */}
+      <div className="flex gap-4 mt-3">
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-3 bg-stone-900 shrink-0" />
+          <span className="text-[10px] text-stone-500">あなたの位置</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-px h-3 bg-red-400 shrink-0" />
+          <span className="text-[10px] text-stone-500">中央値</span>
+        </div>
       </div>
     </div>
   );
@@ -741,8 +812,13 @@ function RankingSection({ estimate, demographics }: { estimate: number; demograp
 
       {/* 全体ランキング */}
       <div className="mb-5">
-        <RankingBar percentile={overall.percentile} label="全体" />
-        <div className="grid grid-cols-2 gap-4 text-sm mt-3">
+        <RankingDistributionChart
+          estimate={estimate}
+          median={overall.median}
+          percentile={overall.percentile}
+          label="全体"
+        />
+        <div className="grid grid-cols-2 gap-4 text-sm mt-4">
           <div>
             <p className="text-stone-400 text-xs uppercase tracking-wider mb-0.5">全体中央値</p>
             <p className="font-medium text-stone-900">{Math.round(overall.median).toLocaleString()} 語</p>
@@ -757,11 +833,13 @@ function RankingSection({ estimate, demographics }: { estimate: number; demograp
       {/* 同年代・同性別ランキング */}
       {demographics && demoStats && demoStats.total >= 3 && (
         <div className="border-t border-stone-100 pt-5">
-          <RankingBar
+          <RankingDistributionChart
+            estimate={estimate}
+            median={demoStats.median}
             percentile={demoStats.percentile}
             label={`${demographics.ageGroup} ${demographics.gender}`}
           />
-          <div className="grid grid-cols-2 gap-4 text-sm mt-3">
+          <div className="grid grid-cols-2 gap-4 text-sm mt-4">
             <div>
               <p className="text-stone-400 text-xs uppercase tracking-wider mb-0.5">同グループ中央値</p>
               <p className="font-medium text-stone-900">{Math.round(demoStats.median).toLocaleString()} 語</p>
