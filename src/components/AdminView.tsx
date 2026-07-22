@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   fetchWordStats, runCalibration, updateWordBParam, addWord, deleteWord, WordStat,
   fetchDemographicStats, DemographicStat,
@@ -164,17 +164,18 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
 const AGE_GROUPS = ['10代', '20代', '30代', '40代', '50代', '60代以上'];
 const GENDERS    = ['男性', '女性', 'その他'];
 
-function DemographicView() {
+function DemographicView({ active, loaded, onFirstLoad }: { active: boolean; loaded: boolean; onFirstLoad: () => void }) {
   const [stats,   setStats]   = useState<DemographicStat[]>([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
 
   useEffect(() => {
+    if (!active || loaded) return;
     fetchDemographicStats()
-      .then(setStats)
+      .then(d => { setStats(d); onFirstLoad(); })
       .catch(() => setError('年代・性別統計の取得に失敗しました。get_demographic_stats RPC が存在するか確認してください。'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [active, loaded, onFirstLoad]);
 
   if (loading) return <p className="text-stone-400 text-sm py-12 text-center">読み込み中...</p>;
   if (error)   return <div className="p-4 border border-red-200 bg-red-50 text-red-700 text-sm">{error}</div>;
@@ -317,18 +318,19 @@ function DemographicView() {
 }
 
 // ── 実スコア相関ビュー ────────────────────────────────────────────────────────
-function RealScoreView() {
+function RealScoreView({ active, loaded, onFirstLoad }: { active: boolean; loaded: boolean; onFirstLoad: () => void }) {
   const [toeicData, setToeicData] = useState<ToeicCorrelation[]>([]);
   const [eikenData, setEikenData] = useState<EikenCorrelation[]>([]);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState<string | null>(null);
 
   useEffect(() => {
+    if (!active || loaded) return;
     Promise.all([fetchToeicCorrelation(), fetchEikenCorrelation()])
-      .then(([toeic, eiken]) => { setToeicData(toeic); setEikenData(eiken); })
+      .then(([toeic, eiken]) => { setToeicData(toeic); setEikenData(eiken); onFirstLoad(); })
       .catch(() => setError('実スコア相関データの取得に失敗しました。get_toeic_correlation / get_eiken_correlation RPC が存在するか確認してください。'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [active, loaded, onFirstLoad]);
 
   if (loading) return <p className="text-stone-400 text-sm py-12 text-center">読み込み中...</p>;
   if (error)   return <div className="p-4 border border-red-200 bg-red-50 text-red-700 text-sm">{error}</div>;
@@ -423,6 +425,8 @@ function RealScoreView() {
 // ── メインコンポーネント ──────────────────────────────────────────────────────
 type AdminTab = 'words' | 'demographics' | 'realscores';
 
+const PAGE_SIZE = 50;
+
 export function AdminView() {
   const [activeTab, setActiveTab]   = useState<AdminTab>('words');
   const [stats, setStats]           = useState<WordStat[]>([]);
@@ -435,15 +439,20 @@ export function AdminView() {
   const [sortDir, setSortDir]         = useState<SortDir>('asc');
   const [showAnomalyOnly, setShowAnomalyOnly] = useState(false);
   const [deleteConfirm, setDeleteConfirm]     = useState<string | null>(null);
+  const [page, setPage]                       = useState(1);
 
-  const load = () => {
+  // タブ別データキャッシュ（再マウント時の再フェッチを防ぐ）
+  const [demoLoaded,    setDemoLoaded]    = useState(false);
+  const [rsLoaded,      setRsLoaded]      = useState(false);
+
+  const load = useCallback(() => {
     setLoading(true); setError(null);
     fetchWordStats()
       .then(setStats)
       .catch(() => setError('統計データの取得に失敗しました。word_stats ビューが存在するか確認してください。'))
       .finally(() => setLoading(false));
-  };
-  useEffect(load, []);
+  }, []);
+  useEffect(load, [load]);
 
   const handleCalibrate = async () => {
     if (!window.confirm('キャリブレーションを実行しますか？\n30件以上の回答がある単語の b_param が更新されます。')) return;
@@ -455,9 +464,9 @@ export function AdminView() {
     finally { setCalibrating(false); }
   };
 
-  const handleBParamSaved = (id: string, val: number) => {
+  const handleBParamSaved = useCallback((id: string, val: number) => {
     setStats(prev => prev.map(s => s.id === id ? { ...s, b_param: val } : s));
-  };
+  }, []);
 
   const handleDelete = async (id: string) => {
     try {
@@ -468,37 +477,58 @@ export function AdminView() {
   };
 
   const toggleSort = (key: SortKey) => {
+    setPage(1);
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortKey(key); setSortDir('asc'); }
   };
 
-  const readyCount   = stats.filter(s => s.calibration_ready).length;
-  const anomalyCount = stats.filter(s =>
-    s.response_count > 0 && (
-      s.correct_rate < 0.05 || s.correct_rate > 0.95 ||
-      (s.calibration_ready && Math.abs(s.proposed_b - s.b_param) > 1.5)
-    )
-  ).length;
-  const avgCorrectRate = stats.length > 0 && stats.some(s => s.response_count > 0)
-    ? stats.filter(s => s.response_count > 0).reduce((sum, s) => sum + s.correct_rate, 0) /
-      stats.filter(s => s.response_count > 0).length
-    : null;
-
-  // フィルター＋ソート
-  let filtered = stats;
-  if (levelFilter !== 'all') filtered = filtered.filter(s => s.level === levelFilter);
-  if (showAnomalyOnly) filtered = filtered.filter(s =>
-    s.response_count > 0 && (
-      s.correct_rate < 0.05 || s.correct_rate > 0.95 ||
-      (s.calibration_ready && Math.abs(s.proposed_b - s.b_param) > 1.5)
-    )
+  // 集計値を useMemo でキャッシュ
+  const readyCount = useMemo(
+    () => stats.filter(s => s.calibration_ready).length,
+    [stats],
   );
-  filtered = [...filtered].sort((a, b) => {
-    const av = a[sortKey] as number | string | boolean;
-    const bv = b[sortKey] as number | string | boolean;
-    const cmp = av < bv ? -1 : av > bv ? 1 : 0;
-    return sortDir === 'asc' ? cmp : -cmp;
-  });
+  const anomalyCount = useMemo(
+    () => stats.filter(s =>
+      s.response_count > 0 && (
+        s.correct_rate < 0.05 || s.correct_rate > 0.95 ||
+        (s.calibration_ready && Math.abs(s.proposed_b - s.b_param) > 1.5)
+      )
+    ).length,
+    [stats],
+  );
+  const avgCorrectRate = useMemo(() => {
+    const responded = stats.filter(s => s.response_count > 0);
+    if (responded.length === 0) return null;
+    return responded.reduce((sum, s) => sum + s.correct_rate, 0) / responded.length;
+  }, [stats]);
+
+  // フィルター＋ソートも useMemo でキャッシュ
+  const filtered = useMemo(() => {
+    let list = stats;
+    if (levelFilter !== 'all') list = list.filter(s => s.level === levelFilter);
+    if (showAnomalyOnly) list = list.filter(s =>
+      s.response_count > 0 && (
+        s.correct_rate < 0.05 || s.correct_rate > 0.95 ||
+        (s.calibration_ready && Math.abs(s.proposed_b - s.b_param) > 1.5)
+      )
+    );
+    return [...list].sort((a, b) => {
+      const av = a[sortKey] as number | string | boolean;
+      const bv = b[sortKey] as number | string | boolean;
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [stats, levelFilter, showAnomalyOnly, sortKey, sortDir]);
+
+  // ページネーション
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated  = useMemo(
+    () => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [filtered, page],
+  );
+
+  // フィルター変更時はページをリセット
+  useEffect(() => { setPage(1); }, [levelFilter, showAnomalyOnly, sortKey, sortDir]);
 
   const thClass = "px-4 py-3 text-left text-xs font-medium text-stone-500 uppercase tracking-wider cursor-pointer hover:text-stone-900 select-none whitespace-nowrap";
 
@@ -553,11 +583,15 @@ export function AdminView() {
           ))}
         </div>
 
-        {/* 年代・性別分析タブ */}
-        {activeTab === 'demographics' && <DemographicView />}
+        {/* 年代・性別分析タブ（常時マウント、表示切替のみ） */}
+        <div className={activeTab === 'demographics' ? '' : 'hidden'}>
+          <DemographicView active={activeTab === 'demographics'} onFirstLoad={() => setDemoLoaded(true)} loaded={demoLoaded} />
+        </div>
 
-        {/* スコア相関タブ */}
-        {activeTab === 'realscores' && <RealScoreView />}
+        {/* スコア相関タブ（常時マウント） */}
+        <div className={activeTab === 'realscores' ? '' : 'hidden'}>
+          <RealScoreView active={activeTab === 'realscores'} onFirstLoad={() => setRsLoaded(true)} loaded={rsLoaded} />
+        </div>
 
         {/* 単語管理タブ */}
         {activeTab === 'words' && <>
@@ -619,6 +653,7 @@ export function AdminView() {
         {loading ? (
           <p className="text-stone-400 text-sm py-12 text-center">読み込み中...</p>
         ) : (
+          <>
           <div className="border border-stone-200 bg-white overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -650,7 +685,7 @@ export function AdminView() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((s, i) => {
+                {paginated.map((s, i) => {
                   const bDiff     = s.proposed_b - s.b_param;
                   const isTooHard = s.response_count > 0 && s.correct_rate < 0.05;
                   const isTooEasy = s.response_count > 0 && s.correct_rate > 0.95;
@@ -720,6 +755,56 @@ export function AdminView() {
               <p className="text-stone-400 text-sm py-8 text-center">データがありません</p>
             )}
           </div>
+
+          {/* ページネーション */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between mt-3">
+              <p className="text-xs text-stone-400">
+                {filtered.length} 件中 {(page - 1) * PAGE_SIZE + 1}〜{Math.min(page * PAGE_SIZE, filtered.length)} 件を表示
+              </p>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="border border-stone-200 text-stone-600 text-xs px-3 py-1.5 hover:bg-stone-100 disabled:opacity-30 transition-colors"
+                >
+                  前へ
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(p => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+                  .reduce<(number | '…')[]>((acc, p, idx, arr) => {
+                    if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push('…');
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((p, i) =>
+                    p === '…' ? (
+                      <span key={`ellipsis-${i}`} className="text-stone-400 text-xs px-2 py-1.5">…</span>
+                    ) : (
+                      <button
+                        key={p}
+                        onClick={() => setPage(p as number)}
+                        className={`border text-xs px-3 py-1.5 transition-colors ${
+                          page === p
+                            ? 'bg-stone-900 text-white border-stone-900'
+                            : 'border-stone-200 text-stone-600 hover:bg-stone-100'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    )
+                  )}
+                <button
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="border border-stone-200 text-stone-600 text-xs px-3 py-1.5 hover:bg-stone-100 disabled:opacity-30 transition-colors"
+                >
+                  次へ
+                </button>
+              </div>
+            </div>
+          )}
+          </>
         )}
 
         <p className="mt-4 text-xs text-stone-400">
