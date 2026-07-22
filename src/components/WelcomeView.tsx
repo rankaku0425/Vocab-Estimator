@@ -1,12 +1,22 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
+import { VocabResult, TestHistoryEntry } from '../types';
+import { loadHistory } from '../App';
 
 interface Props {
   onStart: () => void;
   hasSavedSession: boolean;
   onResume: () => void;
+  onViewHistory: (result: VocabResult) => void;
 }
 
-export function WelcomeView({ onStart, hasSavedSession, onResume }: Props) {
+export function WelcomeView({ onStart, hasSavedSession, onResume, onViewHistory }: Props) {
+  const [history, setHistory] = useState<TestHistoryEntry[]>([]);
+
+  useEffect(() => {
+    setHistory(loadHistory().filter(h => h.result).reverse()); // 新しい順
+  }, []);
+
   return (
     <main className="flex flex-col items-center justify-center min-h-screen p-6 max-w-2xl mx-auto">
       <motion.div
@@ -23,7 +33,7 @@ export function WelcomeView({ onStart, hasSavedSession, onResume }: Props) {
           項目応答理論（IRT）に基づき、あなたの推定語彙力を診断します。
         </p>
 
-        <div className="flex flex-col sm:flex-row gap-4">
+        <div className="flex flex-col sm:flex-row gap-4 mb-4">
           <button
             onClick={onStart}
             className="bg-stone-900 hover:bg-stone-800 text-white font-medium py-4 px-8 transition-colors text-lg"
@@ -42,9 +52,37 @@ export function WelcomeView({ onStart, hasSavedSession, onResume }: Props) {
         </div>
 
         {hasSavedSession && (
-          <p className="mt-4 text-xs text-stone-400">
+          <p className="mb-10 text-xs text-stone-400">
             ※「テストを開始する」を押すと、保存中の進行状況は削除されます。
           </p>
+        )}
+
+        {/* 過去の結果一覧 */}
+        {history.length > 0 && (
+          <div className="mt-4">
+            <h2 className="text-xs font-medium text-stone-400 uppercase tracking-widest mb-3">
+              過去の結果
+            </h2>
+            <div className="space-y-2">
+              {history.map((entry, i) => {
+                const date = new Date(entry.date);
+                const label = `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => entry.result && onViewHistory(entry.result)}
+                    className="w-full flex items-center justify-between border border-stone-200 bg-white hover:bg-stone-50 px-5 py-3 transition-colors text-left"
+                  >
+                    <span className="text-xs text-stone-400 font-mono">{label}</span>
+                    <span className="text-lg font-serif font-bold text-stone-900">
+                      {entry.estimate.toLocaleString()} <span className="text-sm text-stone-500 font-sans font-normal">語</span>
+                    </span>
+                    <span className="text-xs text-stone-400">詳細を見る →</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         )}
       </motion.div>
     </main>

@@ -6,12 +6,7 @@ export interface Word {
   isDummy?: boolean;
 }
 
-export type ViewState = 'start' | 'test' | 'stepResult' | 'finalResult';
-
-export interface TestHistoryEntry {
-  estimate: number;
-  date: string; // ISO string
-}
+export type ViewState = 'start' | 'test' | 'stepResult' | 'finalResult' | 'historyResult';
 
 export interface VocabResult {
   estimate: number;
@@ -19,4 +14,10 @@ export interface VocabResult {
   upper: number;
   theta: number;
   levelBreakdown: { level: number; probability: number }[];
+}
+
+export interface TestHistoryEntry {
+  estimate: number;
+  date: string; // ISO string
+  result?: VocabResult; // 詳細再表示用
 }

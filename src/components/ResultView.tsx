@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Word, VocabResult, TestHistoryEntry } from '../types';
 import { fetchRankingStats, RankingStats } from '../supabase';
@@ -287,130 +287,185 @@ function RankingSection({ estimate }: { estimate: number }) {
   );
 }
 
-// ── エクスポートカード（PDF/画像用の隠しレイアウト） ────────────────────────
-interface ExportCardProps {
-  result: VocabResult;
-  cefrRow: typeof CEFR_TABLE[number];
-}
-
-function ExportCard({ result, cefrRow }: ExportCardProps) {
-  const { estimate, lower, upper, levelBreakdown } = result;
-  const date = new Date().toLocaleDateString('ja-JP');
+// ── Canvas API によるエクスポート描画 ─────────────────────────────────────────
+function createResultCanvas(result: VocabResult): HTMLCanvasElement {
+  const W = 600;
+  const PAD = 48;
+  const scale = 2;
+  const cefrRow = getCefrRow(result.estimate);
 
   const categories = CATEGORIES.map(cat => {
-    const probs = cat.levels.map(lv => levelBreakdown.find(b => b.level === lv)?.probability ?? 0);
+    const probs = (cat.levels as readonly number[]).map(
+      lv => result.levelBreakdown.find(b => b.level === lv)?.probability ?? 0
+    );
     const avg = probs.reduce((s, p) => s + p, 0) / probs.length;
-    return { ...cat, avg };
+    return { label: cat.label, avg };
   });
 
-  return (
-    <div
-      style={{
-        width: '600px',
-        background: '#fff',
-        fontFamily: 'Georgia, serif',
-        padding: '48px',
-        boxSizing: 'border-box',
-        color: '#1c1917',
-      }}
-    >
-      {/* ヘッダー */}
-      <p style={{ fontSize: '11px', letterSpacing: '3px', color: '#78716c', marginBottom: '8px', textTransform: 'uppercase' }}>
-        Vocabulary Estimator — Result
-      </p>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px', marginBottom: '4px' }}>
-        <span style={{ fontSize: '72px', fontWeight: 'bold', lineHeight: 1 }}>{estimate.toLocaleString()}</span>
-        <span style={{ fontSize: '24px', color: '#78716c' }}>語</span>
-      </div>
-      <p style={{ fontSize: '13px', color: '#78716c', marginBottom: '4px' }}>
-        95% 信頼区間: {lower.toLocaleString()} 〜 {upper.toLocaleString()} 語
-      </p>
+  // 高さを事前計算
+  const H = 680;
+  const canvas = document.createElement('canvas');
+  canvas.width = W * scale;
+  canvas.height = H * scale;
+  const ctx = canvas.getContext('2d')!;
+  ctx.scale(scale, scale);
 
-      {/* バー */}
-      <div style={{ background: '#f5f5f4', height: '8px', borderRadius: '4px', margin: '16px 0', overflow: 'hidden' }}>
-        <div style={{
-          background: '#1c1917',
-          height: '100%',
-          width: `${Math.min((estimate / 12000) * 100, 100)}%`,
-          borderRadius: '4px',
-        }} />
-      </div>
+  // 背景
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
 
-      {/* CEFR バッジ */}
-      <div style={{ display: 'flex', gap: '16px', marginBottom: '28px', flexWrap: 'wrap' }}>
-        {[
-          { label: 'CEFR', value: cefrRow.cefr },
-          { label: 'TOEIC', value: cefrRow.toeic },
-          { label: '英検', value: cefrRow.eiken },
-        ].map(({ label, value }) => (
-          <div key={label} style={{ border: '1px solid #e7e5e4', padding: '8px 16px' }}>
-            <p style={{ fontSize: '10px', color: '#a8a29e', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '2px' }}>{label}</p>
-            <p style={{ fontSize: '18px', fontWeight: 'bold' }}>{value}</p>
-          </div>
-        ))}
-      </div>
+  const date = new Date().toLocaleDateString('ja-JP');
+  let y = PAD;
 
-      {/* カテゴリ別 */}
-      <p style={{ fontSize: '10px', letterSpacing: '2px', color: '#a8a29e', textTransform: 'uppercase', marginBottom: '12px' }}>
-        カテゴリ別 語彙診断
-      </p>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '28px' }}>
-        {categories.map(cat => (
-          <div key={cat.label} style={{ border: '1px solid #f5f5f4', padding: '12px 16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-              <span style={{ fontSize: '13px', fontWeight: 'bold' }}>{cat.label}</span>
-              <span style={{ fontSize: '16px', fontWeight: 'bold' }}>{Math.round(cat.avg * 100)}%</span>
-            </div>
-            <div style={{ background: '#f5f5f4', height: '4px', borderRadius: '2px', overflow: 'hidden' }}>
-              <div style={{ background: '#1c1917', height: '100%', width: `${Math.round(cat.avg * 100)}%` }} />
-            </div>
-          </div>
-        ))}
-      </div>
+  // ヘッダーラベル
+  ctx.font = '11px Arial, sans-serif';
+  ctx.fillStyle = '#a8a29e';
+  ctx.textAlign = 'left';
+  ctx.fillText('VOCABULARY ESTIMATOR  —  RESULT', PAD, y);
+  y += 18;
 
-      {/* レベル別棒グラフ */}
-      <p style={{ fontSize: '10px', letterSpacing: '2px', color: '#a8a29e', textTransform: 'uppercase', marginBottom: '8px' }}>
-        レベル別 既知語率
-      </p>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px', height: '80px', marginBottom: '24px' }}>
-        {levelBreakdown.map(({ level, probability }) => (
-          <div key={level} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' }}>
-            <span style={{ fontSize: '8px', color: '#a8a29e', marginBottom: '2px' }}>{Math.round(probability * 100)}%</span>
-            <div style={{ background: '#1c1917', width: '100%', height: `${Math.max(2, Math.round(probability * 60))}px` }} />
-            <span style={{ fontSize: '8px', color: '#a8a29e', marginTop: '2px' }}>{level}</span>
-          </div>
-        ))}
-      </div>
+  // 横線
+  ctx.strokeStyle = '#e7e5e4';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
+  y += 20;
 
-      {/* フッター */}
-      <div style={{ borderTop: '1px solid #e7e5e4', paddingTop: '16px', display: 'flex', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: '11px', color: '#a8a29e' }}>Vocab Estimator</span>
-        <span style={{ fontSize: '11px', color: '#a8a29e' }}>{date}</span>
-      </div>
-    </div>
+  // 大きい数字
+  ctx.font = 'bold 60px Georgia, serif';
+  ctx.fillStyle = '#1c1917';
+  ctx.fillText(result.estimate.toLocaleString(), PAD, y + 60);
+  const numW = ctx.measureText(result.estimate.toLocaleString()).width;
+  ctx.font = '22px Georgia, serif';
+  ctx.fillStyle = '#78716c';
+  ctx.fillText(' 語', PAD + numW, y + 50);
+  y += 72;
+
+  // CI テキスト
+  ctx.font = '12px Arial, sans-serif';
+  ctx.fillStyle = '#78716c';
+  ctx.fillText(
+    `95% 信頼区間: ${result.lower.toLocaleString()} 〜 ${result.upper.toLocaleString()} 語`,
+    PAD, y
   );
+  y += 18;
+
+  // スケールバー
+  const barW = W - PAD * 2;
+  ctx.fillStyle = '#f5f5f4';
+  ctx.fillRect(PAD, y, barW, 8);
+  ctx.fillStyle = '#d6d3d1';
+  const lowerPct = Math.min(result.lower / 12000, 1);
+  const upperPct = Math.min(result.upper / 12000, 1);
+  ctx.fillRect(PAD + barW * lowerPct, y, barW * (upperPct - lowerPct), 8);
+  ctx.fillStyle = '#1c1917';
+  ctx.fillRect(PAD, y, barW * Math.min(result.estimate / 12000, 1), 8);
+  y += 24;
+
+  // CEFR バッジ
+  const badges = [
+    { label: 'CEFR', value: cefrRow.cefr },
+    { label: 'TOEIC', value: cefrRow.toeic },
+    { label: '英検', value: cefrRow.eiken },
+  ];
+  const badgeW = (barW - 16) / 3;
+  badges.forEach((b, i) => {
+    const bx = PAD + i * (badgeW + 8);
+    ctx.strokeStyle = '#e7e5e4';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(bx, y, badgeW, 52);
+    ctx.font = '10px Arial, sans-serif';
+    ctx.fillStyle = '#a8a29e';
+    ctx.textAlign = 'left';
+    ctx.fillText(b.label, bx + 10, y + 16);
+    ctx.font = 'bold 17px Arial, sans-serif';
+    ctx.fillStyle = '#1c1917';
+    ctx.fillText(b.value, bx + 10, y + 38);
+  });
+  y += 68;
+
+  // カテゴリ別
+  ctx.font = '10px Arial, sans-serif';
+  ctx.fillStyle = '#a8a29e';
+  ctx.textAlign = 'left';
+  ctx.fillText('カテゴリ別 語彙診断', PAD, y);
+  y += 12;
+
+  const catW = (barW - 8) / 2;
+  const catH = 48;
+  categories.forEach((cat, i) => {
+    const cx = PAD + (i % 2) * (catW + 8);
+    const cy = y + Math.floor(i / 2) * (catH + 8);
+    ctx.strokeStyle = '#f5f5f4';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(cx, cy, catW, catH);
+    const pct = Math.round(cat.avg * 100);
+    ctx.font = 'bold 13px Arial, sans-serif';
+    ctx.fillStyle = '#1c1917';
+    ctx.textAlign = 'left';
+    ctx.fillText(cat.label, cx + 10, cy + 18);
+    ctx.font = 'bold 15px Arial, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${pct}%`, cx + catW - 10, cy + 18);
+    ctx.fillStyle = '#f5f5f4';
+    ctx.fillRect(cx + 10, cy + 30, catW - 20, 4);
+    ctx.fillStyle = '#1c1917';
+    ctx.fillRect(cx + 10, cy + 30, (catW - 20) * (pct / 100), 4);
+  });
+  y += catH * 2 + 8 + 16;
+
+  // レベル別バー
+  ctx.font = '10px Arial, sans-serif';
+  ctx.fillStyle = '#a8a29e';
+  ctx.textAlign = 'left';
+  ctx.fillText('レベル別 既知語率', PAD, y);
+  y += 12;
+
+  const maxBarH = 56;
+  const lvBarW = (barW - 9 * 3) / 10;
+  result.levelBreakdown.forEach(({ level, probability }, i) => {
+    const bx = PAD + i * (lvBarW + 3);
+    const bh = Math.max(2, Math.round(probability * maxBarH));
+    const by = y + maxBarH - bh;
+    ctx.fillStyle = '#1c1917';
+    ctx.fillRect(bx, by, lvBarW, bh);
+    ctx.font = '8px Arial, sans-serif';
+    ctx.fillStyle = '#78716c';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${Math.round(probability * 100)}%`, bx + lvBarW / 2, by - 2);
+    ctx.fillStyle = '#a8a29e';
+    ctx.fillText(`${level}`, bx + lvBarW / 2, y + maxBarH + 11);
+  });
+  y += maxBarH + 20;
+
+  // フッター
+  ctx.strokeStyle = '#e7e5e4';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
+  y += 14;
+  ctx.font = '11px Arial, sans-serif';
+  ctx.fillStyle = '#a8a29e';
+  ctx.textAlign = 'left';
+  ctx.fillText('Vocab Estimator', PAD, y);
+  ctx.textAlign = 'right';
+  ctx.fillText(date, W - PAD, y);
+
+  // 実際の高さでクロップ
+  const finalH = y + 20;
+  const cropped = document.createElement('canvas');
+  cropped.width = W * scale;
+  cropped.height = finalH * scale;
+  cropped.getContext('2d')!.drawImage(canvas, 0, 0, W * scale, finalH * scale, 0, 0, W * scale, finalH * scale);
+  return cropped;
 }
 
 // ── エクスポートボタン ────────────────────────────────────────────────────────
-function ExportButtons({ result, cefrRow }: ExportCardProps) {
+function ExportButtons({ result }: { result: VocabResult }) {
   const [exporting, setExporting] = useState<'pdf' | 'png' | null>(null);
-  const cardRef = useRef<HTMLDivElement>(null);
-
-  const capture = async () => {
-    const { default: html2canvas } = await import('html2canvas');
-    if (!cardRef.current) return null;
-    return html2canvas(cardRef.current, {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: '#ffffff',
-    });
-  };
 
   const exportPNG = async () => {
     setExporting('png');
     try {
-      const canvas = await capture();
-      if (!canvas) return;
+      const canvas = createResultCanvas(result);
       const link = document.createElement('a');
       link.download = `vocab_result_${new Date().toISOString().slice(0, 10)}.png`;
       link.href = canvas.toDataURL('image/png');
@@ -421,8 +476,7 @@ function ExportButtons({ result, cefrRow }: ExportCardProps) {
   const exportPDF = async () => {
     setExporting('pdf');
     try {
-      const canvas = await capture();
-      if (!canvas) return;
+      const canvas = createResultCanvas(result);
       const { jsPDF } = await import('jspdf');
       const imgData = canvas.toDataURL('image/png');
       const pxToMm = (px: number) => px * 0.264583;
@@ -437,7 +491,7 @@ function ExportButtons({ result, cefrRow }: ExportCardProps) {
   return (
     <div className="mb-12">
       <h4 className="font-bold text-stone-900 mb-3 text-sm uppercase tracking-wider">結果を保存</h4>
-      <div className="flex gap-3 mb-4">
+      <div className="flex gap-3">
         <button
           onClick={exportPNG}
           disabled={!!exporting}
@@ -453,12 +507,6 @@ function ExportButtons({ result, cefrRow }: ExportCardProps) {
           {exporting === 'pdf' ? '生成中...' : 'PDF で保存'}
         </button>
       </div>
-      {/* エクスポート用カード（画面外に配置してキャプチャ） */}
-      <div style={{ position: 'fixed', top: '-9999px', left: '-9999px' }}>
-        <div ref={cardRef}>
-          <ExportCard result={result} cefrRow={cefrRow} />
-        </div>
-      </div>
     </div>
   );
 }
@@ -469,9 +517,10 @@ interface Props {
   allShownWords: Word[];
   selectedIds: Set<string>;
   onRetry: () => void;
+  isHistory?: boolean;
 }
 
-export function ResultView({ result, allShownWords, selectedIds, onRetry }: Props) {
+export function ResultView({ result, allShownWords, selectedIds, onRetry, isHistory = false }: Props) {
   const { estimate, lower, upper, levelBreakdown } = result;
   const cefrRow = getCefrRow(estimate);
 
@@ -619,13 +668,13 @@ export function ResultView({ result, allShownWords, selectedIds, onRetry }: Prop
         </div>
 
         {/* ── エクスポート ── */}
-        <ExportButtons result={result} cefrRow={cefrRow} />
+        <ExportButtons result={result} />
 
         <button
           onClick={onRetry}
           className="border-2 border-stone-900 text-stone-900 hover:bg-stone-900 hover:text-white font-medium py-4 px-8 transition-colors flex items-center justify-center gap-3 w-full sm:w-auto"
         >
-          もう一度テストする
+          {isHistory ? 'ホームに戻る' : 'もう一度テストする'}
         </button>
       </motion.div>
     </main>

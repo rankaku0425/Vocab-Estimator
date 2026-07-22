@@ -35,6 +35,13 @@ function clearSession() {
   localStorage.removeItem(SESSION_KEY);
 }
 
+export function loadHistory(): TestHistoryEntry[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    return raw ? (JSON.parse(raw) as TestHistoryEntry[]) : [];
+  } catch { return []; }
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
   // 管理画面チェック
@@ -48,6 +55,7 @@ export default function App() {
   const [selectedIds, setSelectedIds]     = useState<Set<string>>(new Set());
   const [currentStepWords, setCurrentStepWords] = useState<Word[]>([]);
   const [currentResult, setCurrentResult] = useState<VocabResult | null>(null);
+  const [historyResult, setHistoryResult] = useState<VocabResult | null>(null);
   const [wordList, setWordList]           = useState<Word[]>([]);
   const [dummyWords, setDummyWords]       = useState<Word[]>([]);
   const [loadError, setLoadError]         = useState<string | null>(null);
@@ -86,6 +94,11 @@ export default function App() {
     setView('stepResult');
   };
 
+  const handleViewHistory = (result: VocabResult) => {
+    setHistoryResult(result);
+    setView('historyResult');
+  };
+
   const handleCompleteStep = (stepSelectedIds: Set<string>) => {
     const newSelectedIds = new Set<string>(selectedIds);
     stepSelectedIds.forEach(id => newSelectedIds.add(id));
@@ -113,11 +126,14 @@ export default function App() {
       clearSession();
       if (currentResult) {
         submitScore(currentResult);
-        // 履歴をlocalStorageに保存（最大10件）
-        const entry: TestHistoryEntry = { estimate: currentResult.estimate, date: new Date().toISOString() };
+        // 履歴を localStorage に保存（最大10件、full result 付き）
+        const entry: TestHistoryEntry = {
+          estimate: currentResult.estimate,
+          date: new Date().toISOString(),
+          result: currentResult,
+        };
         try {
-          const raw = localStorage.getItem(HISTORY_KEY);
-          const prev: TestHistoryEntry[] = raw ? JSON.parse(raw) : [];
+          const prev = loadHistory();
           localStorage.setItem(HISTORY_KEY, JSON.stringify([...prev, entry].slice(-10)));
         } catch { /* no-op */ }
       }
@@ -160,6 +176,7 @@ export default function App() {
           onStart={handleStart}
           hasSavedSession={savedSession !== null}
           onResume={handleResume}
+          onViewHistory={handleViewHistory}
         />
       )}
       {view === 'test' && (
@@ -186,6 +203,15 @@ export default function App() {
           allShownWords={allShownWords}
           selectedIds={selectedIds}
           onRetry={handleRetry}
+        />
+      )}
+      {view === 'historyResult' && historyResult && (
+        <ResultView
+          result={historyResult}
+          allShownWords={[]}
+          selectedIds={new Set()}
+          onRetry={handleRetry}
+          isHistory
         />
       )}
     </div>
