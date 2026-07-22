@@ -238,6 +238,7 @@ export default function App() {
           selectedIds={historySelectedIds}
           onRetry={handleRetry}
           isHistory
+          demographics={demographics ?? undefined}
         />
       )}
     </div>

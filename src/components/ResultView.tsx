@@ -177,40 +177,81 @@ function CategoryBreakdown({
   );
 }
 
-// ── 5段階習熟度ラベル ────────────────────────────────────────────────────────
+// ── 5段階習熟度（モノクローム） ──────────────────────────────────────────────
 function proficiencyInfo(pct: number): { label: string; cls: string } {
   if (pct >= 80) return { label: '習得済み', cls: 'bg-stone-900 text-white' };
-  if (pct >= 60) return { label: 'ほぼ習得', cls: 'bg-stone-100 text-stone-600' };
-  if (pct >= 40) return { label: '定着途上', cls: 'bg-yellow-100 text-yellow-700' };
-  if (pct >= 20) return { label: '学習中',   cls: 'bg-orange-100 text-orange-700' };
-  return                { label: '未習得',   cls: 'bg-red-100 text-red-700' };
+  if (pct >= 60) return { label: 'ほぼ習得', cls: 'bg-stone-600 text-white' };
+  if (pct >= 40) return { label: '定着途上', cls: 'bg-stone-200 text-stone-700' };
+  if (pct >= 20) return { label: '学習中',   cls: 'bg-stone-100 text-stone-500' };
+  return                { label: '未習得',   cls: 'border border-stone-300 text-stone-400' };
 }
+
+function barColorCls(pct: number): string {
+  if (pct >= 80) return 'bg-stone-900';
+  if (pct >= 60) return 'bg-stone-700';
+  if (pct >= 40) return 'bg-stone-500';
+  if (pct >= 20) return 'bg-stone-300';
+  return 'bg-stone-200';
+}
+
+function shortLabel(pct: number): string {
+  if (pct >= 80) return '得';
+  if (pct >= 60) return '習';
+  if (pct >= 40) return '定';
+  if (pct >= 20) return '学';
+  return '未';
+}
+
+// ── 年代別コンテキスト ────────────────────────────────────────────────────────
+const AGE_CONTEXT: Record<string, {
+  typical: number; target: number; goalText: string; tipText: string;
+}> = {
+  '10代': {
+    typical: 3500, target: 5000,
+    goalText: '大学受験・英検2級（B1）',
+    tipText: '10代は語彙吸収が最も効率的な時期です。基礎語（Lv1〜3）を固めた後、受験頻出の一般語（Lv4〜6）を集中強化しましょう。単語帳と英文読解の組み合わせが効果的です。',
+  },
+  '20代': {
+    typical: 5500, target: 7500,
+    goalText: 'TOEIC 700〜・就職・グローバルビジネス（B2）',
+    tipText: '就職・キャリアに直結する語彙力が重要な時期です。一般語（Lv4〜6）を押さえた上で、学術語・ビジネス語（Lv7〜8）への橋渡しを意識しましょう。英語ニュースや専門書の多読が有効です。',
+  },
+  '30代': {
+    typical: 5500, target: 7500,
+    goalText: 'ビジネス英語・社内外コミュニケーション（B2）',
+    tipText: 'ビジネスで使える「実用語彙」の獲得が鍵です。一般語から学術語（Lv5〜8）の範囲が実務に最も直結します。業界特有の専門語も意識して取り入れましょう。',
+  },
+  '40代': {
+    typical: 5000, target: 7000,
+    goalText: '英語力の維持・実務活用（B1〜B2）',
+    tipText: '語彙は継続的な接触で定着します。弱点レベルに集中しつつ、既習語との関連付けを意識することで効率よく習得できます。週単位で少しずつ積み上げる学習が持続しやすいです。',
+  },
+  '50代': {
+    typical: 4500, target: 6500,
+    goalText: '語彙力の深化・教養英語（B1〜B2）',
+    tipText: '深い語彙理解が強みになります。単語を文脈・語源と結びつけて覚えると定着しやすいです。既知語の周辺語（類義語・反義語）を広げることで語彙ネットワークが強化されます。',
+  },
+  '60代以上': {
+    typical: 4000, target: 6000,
+    goalText: '継続学習・知的探求（B1）',
+    tipText: '語彙学習に遅すぎることはありません。毎日少しずつ弱点レベルの単語に接することが最大の近道です。好きな英語コンテンツ（映画・書籍・ニュース）を通じた自然な学習も効果的です。',
+  },
+};
 
 // ── 弱点レベルのハイライト ────────────────────────────────────────────────────
 function WeaknessHighlight({
   breakdown,
   allShownWords,
   selectedIds,
+  demographics,
+  estimate,
 }: {
   breakdown: { level: number; probability: number }[];
   allShownWords: Word[];
   selectedIds: Set<string>;
+  demographics?: Demographics;
+  estimate: number;
 }) {
-  const [prevBreakdown, setPrevBreakdown] = useState<{ level: number; probability: number }[] | null>(null);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(HISTORY_KEY);
-      if (!raw) return;
-      const hist = JSON.parse(raw) as TestHistoryEntry[];
-      // 最新エントリが今回のテスト、その1つ前を「前回」とする
-      if (hist.length >= 2) {
-        const prev = hist[hist.length - 2];
-        if (prev.result?.levelBreakdown) setPrevBreakdown(prev.result.levelBreakdown);
-      }
-    } catch { /* no-op */ }
-  }, []);
-
   // 最優先学習レベル: 出題実単語があるレベルの中で最も既知率が低いもの
   const levelsWithWords = breakdown.filter(b =>
     allShownWords.some(w => !w.isDummy && w.level === b.level)
@@ -225,6 +266,10 @@ function WeaknessHighlight({
   });
   const recommended = catAvg.filter(c => c.avg < 0.8).sort((a, b) => a.avg - b.avg)[0] ?? null;
 
+  // 年代コンテキスト
+  const ageCtx = demographics ? AGE_CONTEXT[demographics.ageGroup] ?? null : null;
+  const diff    = ageCtx ? estimate - ageCtx.typical : 0;
+
   return (
     <div className="mb-10 border border-stone-200 bg-white p-6">
       <h4 className="font-bold text-stone-900 mb-5 text-sm uppercase tracking-wider">
@@ -237,56 +282,72 @@ function WeaknessHighlight({
           <p className="text-xs text-stone-400 uppercase tracking-wider mb-1">最優先学習レベル</p>
           <p className="font-bold text-stone-900 mb-2">
             Lv {priorityLevel.level} — 既知率 {Math.round(priorityLevel.probability * 100)}%
+            <span className={`ml-2 text-xs font-normal ${proficiencyInfo(Math.round(priorityLevel.probability * 100)).cls} px-1.5 py-0.5 rounded`}>
+              {proficiencyInfo(Math.round(priorityLevel.probability * 100)).label}
+            </span>
           </p>
           {(() => {
-            const levelWords = allShownWords.filter(w => !w.isDummy && w.level === priorityLevel.level);
+            const levelWords  = allShownWords.filter(w => !w.isDummy && w.level === priorityLevel.level);
             const unknownWords = levelWords.filter(w => !selectedIds.has(w.id));
-            if (unknownWords.length === 0) return null;
+            const knownWords   = levelWords.filter(w => selectedIds.has(w.id));
+            if (levelWords.length === 0) return null;
             return (
-              <div>
-                <p className="text-xs text-stone-500 mb-1.5">知らなかった単語:</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {unknownWords.slice(0, 6).map(w => (
-                    <span key={w.id} className="text-xs border border-stone-300 text-stone-600 px-2 py-0.5">
-                      {w.word}
-                    </span>
-                  ))}
-                </div>
+              <div className="space-y-3">
+                {unknownWords.length > 0 && (
+                  <div>
+                    <p className="text-xs text-stone-500 mb-1.5">知らなかった単語（優先的に学習）:</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {unknownWords.slice(0, 6).map(w => (
+                        <span key={w.id} className="text-xs border border-stone-400 text-stone-700 px-2 py-0.5 font-medium">
+                          {w.word}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {knownWords.length > 0 && (
+                  <div>
+                    <p className="text-xs text-stone-400 mb-1.5">知っていた単語:</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {knownWords.map(w => (
+                        <span key={w.id} className="text-xs text-stone-400 px-2 py-0.5">
+                          {w.word}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}
         </div>
       )}
 
-      {/* レベル別習熟度一覧 */}
-      <p className="text-xs text-stone-400 uppercase tracking-wider mb-2">レベル別習熟度</p>
-      <div className="space-y-1.5 mb-5">
-        {breakdown.map(({ level, probability }) => {
-          const pct = Math.round(probability * 100);
-          const { label, cls } = proficiencyInfo(pct);
-          const prevProb = prevBreakdown?.find(b => b.level === level)?.probability ?? null;
-          const delta = prevProb !== null ? pct - Math.round(prevProb * 100) : null;
-          return (
-            <div key={level} className="flex items-center gap-2">
-              <span className="text-xs font-mono text-stone-400 w-7 shrink-0">Lv{level}</span>
-              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded whitespace-nowrap shrink-0 ${cls}`}>
-                {label}
-              </span>
-              <div className="flex-1 h-1.5 bg-stone-100 rounded-full overflow-hidden">
-                <div className="h-full bg-stone-700 rounded-full" style={{ width: `${pct}%` }} />
-              </div>
-              <span className="text-[10px] font-mono text-stone-500 w-8 text-right shrink-0">{pct}%</span>
-              <span className={`text-[10px] font-mono w-10 text-right shrink-0 ${
-                delta === null ? 'invisible' :
-                delta > 0 ? 'text-stone-700' :
-                delta < 0 ? 'text-stone-400' : 'text-stone-300'
-              }`}>
-                {delta === null ? '' : delta > 0 ? `↑+${delta}%` : delta < 0 ? `↓${delta}%` : '—'}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+      {/* 年代別インサイト */}
+      {ageCtx && demographics && (
+        <div className="mb-5 border-l-2 border-stone-900 pl-4">
+          <p className="text-xs text-stone-400 uppercase tracking-wider mb-2">
+            {demographics.ageGroup}・{demographics.gender} 向けインサイト
+          </p>
+          <p className="text-sm text-stone-700 mb-1 leading-relaxed">
+            {demographics.ageGroup}の平均的な語彙力は約{ageCtx.typical.toLocaleString()}語です。
+            あなたのスコア（{estimate.toLocaleString()}語）は
+            <span className="font-semibold text-stone-900">
+              {diff >= 0
+                ? `同年代の平均より約${Math.abs(diff).toLocaleString()}語上`
+                : `同年代の平均より約${Math.abs(diff).toLocaleString()}語下`}
+            </span>
+            です。
+          </p>
+          <p className="text-xs text-stone-500 mb-3">
+            目安の目標: <span className="font-medium text-stone-700">{ageCtx.goalText}</span>
+            {estimate < ageCtx.target
+              ? `（目標まであと約${(ageCtx.target - estimate).toLocaleString()}語）`
+              : ' — 目安達成。さらに上を目指しましょう。'}
+          </p>
+          <p className="text-sm text-stone-600 leading-relaxed">{ageCtx.tipText}</p>
+        </div>
+      )}
 
       {/* カテゴリ推奨 */}
       {recommended && (
@@ -297,6 +358,9 @@ function WeaknessHighlight({
               「{recommended.cat.label}（Lv {(recommended.cat.levels as readonly number[]).join('–')}）」
             </span>
             の強化が最も効果的です。
+            {ageCtx && recommended.cat.levels.some(lv => lv >= 7) && estimate < 7000 && (
+              <span className="text-stone-500"> まずは一般語（Lv4〜6）を確実に固めてからチャレンジしましょう。</span>
+            )}
           </p>
         </div>
       )}
@@ -308,38 +372,92 @@ function WeaknessHighlight({
 const MAX_BAR_PX = 80;
 
 function LevelBarChart({ breakdown }: { breakdown: { level: number; probability: number }[] }) {
+  const [prevBreakdown, setPrevBreakdown] = useState<{ level: number; probability: number }[] | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(HISTORY_KEY);
+      if (!raw) return;
+      const hist = JSON.parse(raw) as TestHistoryEntry[];
+      if (hist.length >= 2) {
+        const prev = hist[hist.length - 2];
+        if (prev.result?.levelBreakdown) setPrevBreakdown(prev.result.levelBreakdown);
+      }
+    } catch { /* no-op */ }
+  }, []);
+
   return (
     <div>
-      <h4 className="font-bold text-stone-900 mb-4 text-sm uppercase tracking-wider">
-        レベル別 既知語率
-      </h4>
-      <div className="flex items-end gap-1.5" style={{ height: MAX_BAR_PX + 40 }}>
+      <div className="flex items-center justify-between mb-4">
+        <h4 className="font-bold text-stone-900 text-sm uppercase tracking-wider">
+          レベル別 既知語率
+        </h4>
+        {prevBreakdown && (
+          <span className="text-[10px] text-stone-400">↑↓ 前回比</span>
+        )}
+      </div>
+      <div className="flex items-end gap-1.5" style={{ height: MAX_BAR_PX + 56 }}>
         {breakdown.map(({ level, probability }) => {
+          const pct   = Math.round(probability * 100);
           const barPx = Math.max(2, Math.round(probability * MAX_BAR_PX));
+          const prevPct = prevBreakdown
+            ? Math.round((prevBreakdown.find(b => b.level === level)?.probability ?? probability) * 100)
+            : null;
+          const delta = prevPct !== null ? pct - prevPct : null;
           return (
             <div
               key={level}
               className="flex-1 flex flex-col items-center"
               style={{ height: '100%', justifyContent: 'flex-end' }}
             >
-              <span className="text-[9px] text-stone-500 font-mono leading-none mb-1">
-                {Math.round(probability * 100)}%
+              {/* 前回比 */}
+              <span className={`text-[8px] font-mono leading-none mb-0.5 ${
+                delta === null || delta === 0 ? 'invisible' :
+                delta > 0 ? 'text-stone-600' : 'text-stone-400'
+              }`}>
+                {delta !== null && delta !== 0 ? (delta > 0 ? `+${delta}` : delta) : '0'}
               </span>
+              {/* % */}
+              <span className="text-[9px] text-stone-500 font-mono leading-none mb-1">
+                {pct}%
+              </span>
+              {/* バー（習熟度でシェード） */}
               <motion.div
                 initial={{ height: 0 }}
                 animate={{ height: barPx }}
                 transition={{ duration: 0.7, delay: level * 0.05, ease: 'easeOut' }}
-                className="w-full bg-stone-900 rounded-t-sm"
+                className={`w-full rounded-t-sm ${barColorCls(pct)}`}
               />
+              {/* レベル番号 */}
               <span className="text-[9px] text-stone-400 font-mono leading-none mt-1.5">
                 {level}
+              </span>
+              {/* 習熟度短縮ラベル */}
+              <span className="text-[8px] text-stone-400 leading-none mt-0.5">
+                {shortLabel(pct)}
               </span>
             </div>
           );
         })}
       </div>
+
+      {/* 凡例 */}
+      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-3">
+        {([
+          ['習得済み', 'bg-stone-900'],
+          ['ほぼ習得', 'bg-stone-700'],
+          ['定着途上', 'bg-stone-500'],
+          ['学習中',   'bg-stone-300'],
+          ['未習得',   'bg-stone-200'],
+        ] as [string, string][]).map(([label, cls]) => (
+          <div key={label} className="flex items-center gap-1">
+            <div className={`w-2.5 h-2.5 rounded-sm shrink-0 ${cls}`} />
+            <span className="text-[9px] text-stone-400">{label}</span>
+          </div>
+        ))}
+      </div>
       <p className="text-xs text-stone-400 mt-2">
-        IRT（ラッシュモデル）による各レベルの推定既知割合
+        IRT（ラッシュモデル）による各レベルの推定既知割合。凡例は習熟度の目安。
       </p>
     </div>
   );
@@ -802,7 +920,13 @@ export function ResultView({ result, allShownWords, selectedIds, onRetry, isHist
         <RankingSection estimate={estimate} demographics={demographics} />
 
         {/* ── 学習フィードバック（機能12） ── */}
-        <WeaknessHighlight breakdown={levelBreakdown} allShownWords={allShownWords} selectedIds={selectedIds} />
+        <WeaknessHighlight
+          breakdown={levelBreakdown}
+          allShownWords={allShownWords}
+          selectedIds={selectedIds}
+          demographics={demographics}
+          estimate={estimate}
+        />
 
         {/* ── カテゴリ別診断（機能11） ── */}
         <CategoryBreakdown breakdown={levelBreakdown} allShownWords={allShownWords} selectedIds={selectedIds} />
