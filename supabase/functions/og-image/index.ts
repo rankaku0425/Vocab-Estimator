@@ -36,8 +36,9 @@ async function getFonts(): Promise<ArrayBuffer[]> {
     }
   ).then((r) => r.text());
 
-  // CSS 中のすべての woff2 URL を抽出
-  const urls = [...css.matchAll(/url\(([^)]+\.woff2)\)/g)].map((m) => m[1]);
+  // CSS 中の woff2 フォーマット宣言のURLをすべて抽出
+  // Google Fonts は /l/font?kit=... のようなトークンURLを使うため拡張子で絞れない
+  const urls = [...css.matchAll(/url\(([^)]+)\)\s+format\('woff2'\)/g)].map((m) => m[1]);
   if (urls.length === 0) {
     throw new Error(`Font URL not found in CSS response:\n${css.slice(0, 500)}`);
   }
