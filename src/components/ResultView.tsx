@@ -1472,8 +1472,8 @@ export function ResultView({ result, allShownWords, selectedIds, onRetry, isHist
           </div>
         </div>
 
-        {/* ── SNS シェア：新規テスト完了時のみ ── */}
-        {!isHistory && <ShareSection result={result} />}
+        {/* ── SNS シェア ── */}
+        <ShareSection result={result} />
 
         {/* ── 自己評価（アイデア24）：新規テスト完了時のみ ── */}
         {!isHistory && (
