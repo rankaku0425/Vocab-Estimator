@@ -26,19 +26,19 @@ let fontCache: ArrayBuffer[] | null = null;
 async function getFonts(): Promise<ArrayBuffer[]> {
   if (fontCache) return fontCache;
 
+  // Firefox 27 (WOFF2未対応) の UA → Google Fonts が WOFF 形式を返す
+  // satori の内部 opentype.js は WOFF2 未対応のため WOFF を使う必要がある
   const css = await fetch(
     `https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@700&text=${encodeURIComponent(GLYPH_SET)}&display=swap`,
     {
       headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; rv:27.0) Gecko/20100101 Firefox/27.0',
       },
     }
   ).then((r) => r.text());
 
-  // CSS 中の woff2 フォーマット宣言のURLをすべて抽出
-  // Google Fonts は /l/font?kit=... のようなトークンURLを使うため拡張子で絞れない
-  const urls = [...css.matchAll(/url\(([^)]+)\)\s+format\('woff2'\)/g)].map((m) => m[1]);
+  // WOFF 形式のURLを抽出（WOFF2 は satori 非対応）
+  const urls = [...css.matchAll(/url\(([^)]+)\)\s+format\('woff'\)/g)].map((m) => m[1]);
   if (urls.length === 0) {
     throw new Error(`Font URL not found in CSS response:\n${css.slice(0, 500)}`);
   }
