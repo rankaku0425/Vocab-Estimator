@@ -100,3 +100,23 @@ export async function runCalibration(): Promise<number> {
   if (error) throw error;
   return data as number;
 }
+
+// ── 管理：b_param 更新 ────────────────────────────────────────────────────────
+export async function updateWordBParam(id: string, b_param: number): Promise<void> {
+  const { error } = await supabase.from('words').update({ b_param }).eq('id', id);
+  if (error) throw error;
+}
+
+// ── 管理：単語追加 ────────────────────────────────────────────────────────────
+export async function addWord(word: string, level: number): Promise<void> {
+  const b_param = (level - 5.5) * 0.8;
+  const id = `manual_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const { error } = await supabase.from('words').insert({ id, word, level, b_param, is_dummy: false });
+  if (error) throw error;
+}
+
+// ── 管理：単語削除 ────────────────────────────────────────────────────────────
+export async function deleteWord(id: string): Promise<void> {
+  const { error } = await supabase.from('words').delete().eq('id', id);
+  if (error) throw error;
+}

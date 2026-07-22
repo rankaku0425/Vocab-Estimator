@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Word, VocabResult, TestHistoryEntry } from '../types';
 import { fetchRankingStats, RankingStats } from '../supabase';
@@ -287,6 +287,182 @@ function RankingSection({ estimate }: { estimate: number }) {
   );
 }
 
+// ── エクスポートカード（PDF/画像用の隠しレイアウト） ────────────────────────
+interface ExportCardProps {
+  result: VocabResult;
+  cefrRow: typeof CEFR_TABLE[number];
+}
+
+function ExportCard({ result, cefrRow }: ExportCardProps) {
+  const { estimate, lower, upper, levelBreakdown } = result;
+  const date = new Date().toLocaleDateString('ja-JP');
+
+  const categories = CATEGORIES.map(cat => {
+    const probs = cat.levels.map(lv => levelBreakdown.find(b => b.level === lv)?.probability ?? 0);
+    const avg = probs.reduce((s, p) => s + p, 0) / probs.length;
+    return { ...cat, avg };
+  });
+
+  return (
+    <div
+      style={{
+        width: '600px',
+        background: '#fff',
+        fontFamily: 'Georgia, serif',
+        padding: '48px',
+        boxSizing: 'border-box',
+        color: '#1c1917',
+      }}
+    >
+      {/* ヘッダー */}
+      <p style={{ fontSize: '11px', letterSpacing: '3px', color: '#78716c', marginBottom: '8px', textTransform: 'uppercase' }}>
+        Vocabulary Estimator — Result
+      </p>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px', marginBottom: '4px' }}>
+        <span style={{ fontSize: '72px', fontWeight: 'bold', lineHeight: 1 }}>{estimate.toLocaleString()}</span>
+        <span style={{ fontSize: '24px', color: '#78716c' }}>語</span>
+      </div>
+      <p style={{ fontSize: '13px', color: '#78716c', marginBottom: '4px' }}>
+        95% 信頼区間: {lower.toLocaleString()} 〜 {upper.toLocaleString()} 語
+      </p>
+
+      {/* バー */}
+      <div style={{ background: '#f5f5f4', height: '8px', borderRadius: '4px', margin: '16px 0', overflow: 'hidden' }}>
+        <div style={{
+          background: '#1c1917',
+          height: '100%',
+          width: `${Math.min((estimate / 12000) * 100, 100)}%`,
+          borderRadius: '4px',
+        }} />
+      </div>
+
+      {/* CEFR バッジ */}
+      <div style={{ display: 'flex', gap: '16px', marginBottom: '28px', flexWrap: 'wrap' }}>
+        {[
+          { label: 'CEFR', value: cefrRow.cefr },
+          { label: 'TOEIC', value: cefrRow.toeic },
+          { label: '英検', value: cefrRow.eiken },
+        ].map(({ label, value }) => (
+          <div key={label} style={{ border: '1px solid #e7e5e4', padding: '8px 16px' }}>
+            <p style={{ fontSize: '10px', color: '#a8a29e', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '2px' }}>{label}</p>
+            <p style={{ fontSize: '18px', fontWeight: 'bold' }}>{value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* カテゴリ別 */}
+      <p style={{ fontSize: '10px', letterSpacing: '2px', color: '#a8a29e', textTransform: 'uppercase', marginBottom: '12px' }}>
+        カテゴリ別 語彙診断
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '28px' }}>
+        {categories.map(cat => (
+          <div key={cat.label} style={{ border: '1px solid #f5f5f4', padding: '12px 16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+              <span style={{ fontSize: '13px', fontWeight: 'bold' }}>{cat.label}</span>
+              <span style={{ fontSize: '16px', fontWeight: 'bold' }}>{Math.round(cat.avg * 100)}%</span>
+            </div>
+            <div style={{ background: '#f5f5f4', height: '4px', borderRadius: '2px', overflow: 'hidden' }}>
+              <div style={{ background: '#1c1917', height: '100%', width: `${Math.round(cat.avg * 100)}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* レベル別棒グラフ */}
+      <p style={{ fontSize: '10px', letterSpacing: '2px', color: '#a8a29e', textTransform: 'uppercase', marginBottom: '8px' }}>
+        レベル別 既知語率
+      </p>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px', height: '80px', marginBottom: '24px' }}>
+        {levelBreakdown.map(({ level, probability }) => (
+          <div key={level} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' }}>
+            <span style={{ fontSize: '8px', color: '#a8a29e', marginBottom: '2px' }}>{Math.round(probability * 100)}%</span>
+            <div style={{ background: '#1c1917', width: '100%', height: `${Math.max(2, Math.round(probability * 60))}px` }} />
+            <span style={{ fontSize: '8px', color: '#a8a29e', marginTop: '2px' }}>{level}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* フッター */}
+      <div style={{ borderTop: '1px solid #e7e5e4', paddingTop: '16px', display: 'flex', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: '11px', color: '#a8a29e' }}>Vocab Estimator</span>
+        <span style={{ fontSize: '11px', color: '#a8a29e' }}>{date}</span>
+      </div>
+    </div>
+  );
+}
+
+// ── エクスポートボタン ────────────────────────────────────────────────────────
+function ExportButtons({ result, cefrRow }: ExportCardProps) {
+  const [exporting, setExporting] = useState<'pdf' | 'png' | null>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  const capture = async () => {
+    const { default: html2canvas } = await import('html2canvas');
+    if (!cardRef.current) return null;
+    return html2canvas(cardRef.current, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+    });
+  };
+
+  const exportPNG = async () => {
+    setExporting('png');
+    try {
+      const canvas = await capture();
+      if (!canvas) return;
+      const link = document.createElement('a');
+      link.download = `vocab_result_${new Date().toISOString().slice(0, 10)}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } finally { setExporting(null); }
+  };
+
+  const exportPDF = async () => {
+    setExporting('pdf');
+    try {
+      const canvas = await capture();
+      if (!canvas) return;
+      const { jsPDF } = await import('jspdf');
+      const imgData = canvas.toDataURL('image/png');
+      const pxToMm = (px: number) => px * 0.264583;
+      const w = pxToMm(canvas.width);
+      const h = pxToMm(canvas.height);
+      const pdf = new jsPDF({ unit: 'mm', format: [w, h], orientation: 'portrait' });
+      pdf.addImage(imgData, 'PNG', 0, 0, w, h);
+      pdf.save(`vocab_result_${new Date().toISOString().slice(0, 10)}.pdf`);
+    } finally { setExporting(null); }
+  };
+
+  return (
+    <div className="mb-12">
+      <h4 className="font-bold text-stone-900 mb-3 text-sm uppercase tracking-wider">結果を保存</h4>
+      <div className="flex gap-3 mb-4">
+        <button
+          onClick={exportPNG}
+          disabled={!!exporting}
+          className="border border-stone-900 text-stone-900 hover:bg-stone-900 hover:text-white text-sm font-medium py-2.5 px-5 transition-colors disabled:opacity-40"
+        >
+          {exporting === 'png' ? '生成中...' : '画像（PNG）で保存'}
+        </button>
+        <button
+          onClick={exportPDF}
+          disabled={!!exporting}
+          className="border border-stone-900 text-stone-900 hover:bg-stone-900 hover:text-white text-sm font-medium py-2.5 px-5 transition-colors disabled:opacity-40"
+        >
+          {exporting === 'pdf' ? '生成中...' : 'PDF で保存'}
+        </button>
+      </div>
+      {/* エクスポート用カード（画面外に配置してキャプチャ） */}
+      <div style={{ position: 'fixed', top: '-9999px', left: '-9999px' }}>
+        <div ref={cardRef}>
+          <ExportCard result={result} cefrRow={cefrRow} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── メインコンポーネント ──────────────────────────────────────────────────────
 interface Props {
   result: VocabResult;
@@ -441,6 +617,9 @@ export function ResultView({ result, allShownWords, selectedIds, onRetry }: Prop
             </ul>
           </div>
         </div>
+
+        {/* ── エクスポート ── */}
+        <ExportButtons result={result} cefrRow={cefrRow} />
 
         <button
           onClick={onRetry}
