@@ -1,31 +1,40 @@
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
-const APP_URL      = Deno.env.get('APP_URL') ?? '';
+const APP_URL      = Deno.env.get('APP_URL') ?? '/';
+
+// OGPをクロールするボットのUser-Agent判定
+const BOT_PATTERN = /twitterbot|facebookexternalhit|linkedinbot|whatsapp|slackbot|discordbot|telegrambot|applebot|line-poster/i;
 
 Deno.serve((req) => {
+  const ua = req.headers.get('user-agent') ?? '';
+
+  // 一般ブラウザ → アプリへ即時 302 リダイレクト（HTMLは見せない）
+  if (!BOT_PATTERN.test(ua)) {
+    return new Response(null, {
+      status: 302,
+      headers: { 'Location': APP_URL },
+    });
+  }
+
+  // OGPボット → メタタグ付きHTMLを返す
   const { searchParams } = new URL(req.url);
   const score = searchParams.get('score') ?? '0';
   const cefr  = searchParams.get('cefr')  ?? 'A1';
   const toeic = searchParams.get('toeic') ?? '';
   const eiken = searchParams.get('eiken') ?? '';
 
-  const scoreNum = Number(score).toLocaleString('ja-JP');
-  const title    = `英語語彙力テスト — 推定 ${scoreNum} 語（CEFR ${cefr}）`;
+  const scoreNum = Number(score).toLocaleString('en-US');
+  const title    = `\u82f1\u8a9e\u8a9e\u5f59\u529b\u30c6\u30b9\u30c8 \u2014 \u63a8\u5b9a ${scoreNum} \u8a9e\uff08CEFR ${cefr}\uff09`;
   const desc     = [
     toeic && `TOEIC ${toeic}`,
-    eiken && `英検 ${eiken}`,
-  ].filter(Boolean).join(' / ') || 'あなたの英語語彙力を測定しましょう！';
+    eiken && `\u82f1\u691c ${eiken}`,
+  ].filter(Boolean).join(' / ') || '\u3042\u306a\u305f\u306e\u82f1\u8a9e\u8a9e\u5f59\u529b\u3092\u6e2c\u5b9a\u3057\u307e\u3057\u3087\u3046\uff01';
 
   const imageParams = new URLSearchParams({ score, cefr, toeic, eiken });
   const imageUrl = `${SUPABASE_URL}/functions/v1/og-image?${imageParams}`;
 
-  // XSS対策 + 文字化け防止: 非ASCII文字をHTMLエンティティに変換してpure ASCIIにする
+  // XSS対策: HTML属性内の特殊文字をエスケープ（非ASCII は Unicode エスケープ済み）
   const esc = (s: string) =>
-    s
-      .replace(/&/g, '&amp;')
-      .replace(/"/g, '&quot;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/[^\x00-\x7F]/g, (c) => `&#${c.codePointAt(0)};`);
+    s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
   const html = `<!DOCTYPE html>
 <html lang="ja">
@@ -44,12 +53,8 @@ Deno.serve((req) => {
   <meta name="twitter:title"       content="${esc(title)}">
   <meta name="twitter:description" content="${esc(desc)}">
   <meta name="twitter:image"       content="${esc(imageUrl)}">
-  <meta http-equiv="refresh" content="0; url=${esc(APP_URL)}">
 </head>
-<body>
-  <p><a href="${esc(APP_URL)}">Open App</a></p>
-  <script>window.location.href = ${JSON.stringify(APP_URL)};</script>
-</body>
+<body></body>
 </html>`;
 
   return new Response(html, {
